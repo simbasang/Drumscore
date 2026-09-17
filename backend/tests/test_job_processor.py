@@ -24,6 +24,11 @@ class FakeFailingExtractor:
         raise AudioExtractionError("could not download video")
 
 
+class FakeCrashingExtractor:
+    def extract(self, source, destination_dir):
+        raise RuntimeError("disk full")
+
+
 def test_run_audio_extraction_marks_job_downloaded_on_success(tmp_path, source):
     store = JobStore()
     job = store.create(url=source.url)
@@ -46,6 +51,17 @@ def test_run_audio_extraction_marks_job_failed_on_error(tmp_path, source):
     assert updated.status == JobStatus.FAILED
     assert updated.error == "could not download video"
     assert updated.audio_path is None
+
+
+def test_run_audio_extraction_marks_job_failed_on_unexpected_exception(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+
+    run_audio_extraction(job.id, source, store, FakeCrashingExtractor(), tmp_path)
+
+    updated = store.get(job.id)
+    assert updated.status == JobStatus.FAILED
+    assert "disk full" in updated.error
 
 
 def test_run_audio_extraction_sets_status_to_downloading_while_extracting(tmp_path, source):
@@ -77,6 +93,11 @@ class FakeFailingSeparator:
         raise StemSeparationError("separation blew up")
 
 
+class FakeCrashingSeparator:
+    def separate(self, audio_path, destination_dir):
+        raise RuntimeError("segfault in native code")
+
+
 def test_run_stem_separation_marks_job_stems_separated_on_success(tmp_path, source):
     store = JobStore()
     job = store.create(url=source.url)
@@ -98,6 +119,17 @@ def test_run_stem_separation_marks_job_failed_on_error(tmp_path, source):
     updated = store.get(job.id)
     assert updated.status == JobStatus.FAILED
     assert updated.error == "separation blew up"
+
+
+def test_run_stem_separation_marks_job_failed_on_unexpected_exception(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+
+    run_stem_separation(job.id, tmp_path / "source.wav", store, FakeCrashingSeparator(), tmp_path)
+
+    updated = store.get(job.id)
+    assert updated.status == JobStatus.FAILED
+    assert "segfault in native code" in updated.error
 
 
 def test_run_pipeline_runs_extraction_then_separation_on_success(tmp_path, source):

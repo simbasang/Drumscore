@@ -1,4 +1,4 @@
-import { createJob } from "../jobs";
+import { createJob, getJob } from "../jobs";
 
 describe("createJob", () => {
   it("should return the created job when the backend accepts the URL", async () => {
@@ -27,5 +27,37 @@ describe("createJob", () => {
     await expect(createJob("http://localhost:8000", "x")).rejects.toThrow(
       "'x' is not a supported YouTube URL",
     );
+  });
+});
+
+describe("getJob", () => {
+  it("should return the current job state", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          id: "job-1",
+          url: "https://youtu.be/dQw4w9WgXcQ",
+          status: "separating_stems",
+        }),
+    } as Response);
+
+    const result = await getJob("http://localhost:8000", "job-1");
+
+    expect(result).toEqual({
+      id: "job-1",
+      url: "https://youtu.be/dQw4w9WgXcQ",
+      status: "separating_stems",
+    });
+    expect(global.fetch).toHaveBeenCalledWith("http://localhost:8000/api/jobs/job-1");
+  });
+
+  it("should throw when the job cannot be found", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      json: () => Promise.resolve({ detail: "Job not found" }),
+    } as Response);
+
+    await expect(getJob("http://localhost:8000", "missing")).rejects.toThrow("Job not found");
   });
 });

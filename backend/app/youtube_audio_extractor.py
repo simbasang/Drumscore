@@ -7,6 +7,7 @@ from app.media_source import ParsedSource
 
 _TARGET_SAMPLE_RATE = "44100"
 _TARGET_CHANNELS = "2"
+_SOCKET_TIMEOUT_SECONDS = 30
 
 
 def _build_ydl_options(destination_dir: Path) -> dict:
@@ -22,6 +23,7 @@ def _build_ydl_options(destination_dir: Path) -> dict:
         "quiet": True,
         "noplaylist": True,
         "noprogress": True,
+        "socket_timeout": _SOCKET_TIMEOUT_SECONDS,
     }
 
 

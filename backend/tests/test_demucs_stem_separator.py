@@ -1,3 +1,4 @@
+import subprocess
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -43,7 +44,19 @@ def test_separate_invokes_demucs_with_two_stems_drums_flag(tmp_path):
             ],
             capture_output=True,
             text=True,
+            timeout=600,
         )
+
+
+def test_separate_raises_when_demucs_times_out(tmp_path):
+    audio_path = tmp_path / "source.wav"
+    audio_path.write_bytes(b"fake audio")
+
+    with patch("app.demucs_stem_separator.subprocess.run") as mock_run:
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="demucs", timeout=600)
+
+        with pytest.raises(StemSeparationError, match="timed out"):
+            DemucsStemSeparator().separate(audio_path, tmp_path / "out")
 
 
 def test_separate_returns_drum_and_accompaniment_paths(tmp_path):

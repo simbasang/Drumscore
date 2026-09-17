@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 
-import { createJob } from "@/lib/api/jobs";
+import { createJob, getJob } from "@/lib/api/jobs";
 import JobForm from "../JobForm";
 
 jest.mock("@/lib/api/jobs");
@@ -51,5 +51,85 @@ describe("JobForm", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "'x' is not a supported YouTube URL",
     );
+  });
+
+  describe("polling", () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it("should poll for job status until it reaches stems_separated", async () => {
+      (createJob as jest.Mock).mockResolvedValue({
+        id: "job-1",
+        url: "https://youtu.be/dQw4w9WgXcQ",
+        status: "queued",
+      });
+      (getJob as jest.Mock)
+        .mockResolvedValueOnce({ id: "job-1", status: "downloading" })
+        .mockResolvedValueOnce({ id: "job-1", status: "separating_stems" })
+        .mockResolvedValueOnce({
+          id: "job-1",
+          status: "stems_separated",
+          drums_path: "/data/drums.wav",
+        });
+
+      render(<JobForm apiBaseUrl="http://localhost:8000" />);
+      fillAndSubmit("https://youtu.be/dQw4w9WgXcQ");
+      await act(async () => {});
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(screen.getByText(/downloading audio/i)).toBeInTheDocument();
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(screen.getByText(/separating drum stems/i)).toBeInTheDocument();
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(screen.getByText(/drums and accompaniment separated/i)).toBeInTheDocument();
+
+      const callsAfterDone = (getJob as jest.Mock).mock.calls.length;
+      await act(async () => {
+        jest.advanceTimersByTime(4000);
+      });
+      expect((getJob as jest.Mock).mock.calls.length).toBe(callsAfterDone);
+    });
+
+    it("should show the backend's error and stop polling once the job fails", async () => {
+      (createJob as jest.Mock).mockResolvedValue({
+        id: "job-1",
+        url: "https://youtu.be/dQw4w9WgXcQ",
+        status: "queued",
+      });
+      (getJob as jest.Mock).mockResolvedValue({
+        id: "job-1",
+        status: "failed",
+        error: "video unavailable",
+      });
+
+      render(<JobForm apiBaseUrl="http://localhost:8000" />);
+      fillAndSubmit("https://youtu.be/dQw4w9WgXcQ");
+      await act(async () => {});
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("video unavailable");
+
+      const callsAfterFailure = (getJob as jest.Mock).mock.calls.length;
+      await act(async () => {
+        jest.advanceTimersByTime(4000);
+      });
+      expect((getJob as jest.Mock).mock.calls.length).toBe(callsAfterFailure);
+    });
   });
 });

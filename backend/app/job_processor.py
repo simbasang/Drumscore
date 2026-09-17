@@ -20,6 +20,9 @@ def run_audio_extraction(
     except AudioExtractionError as error:
         store.update(job_id, status=JobStatus.FAILED, error=str(error))
         return None
+    except Exception as error:  # noqa: BLE001 - guarantee the job reaches a terminal state
+        store.update(job_id, status=JobStatus.FAILED, error=f"Unexpected error: {error}")
+        return None
 
     store.update(job_id, status=JobStatus.DOWNLOADED, audio_path=str(audio_path))
     return audio_path
@@ -38,6 +41,9 @@ def run_stem_separation(
         stems = separator.separate(audio_path, destination_dir)
     except StemSeparationError as error:
         store.update(job_id, status=JobStatus.FAILED, error=str(error))
+        return
+    except Exception as error:  # noqa: BLE001 - guarantee the job reaches a terminal state
+        store.update(job_id, status=JobStatus.FAILED, error=f"Unexpected error: {error}")
         return
 
     store.update(

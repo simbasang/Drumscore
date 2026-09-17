@@ -22,6 +22,12 @@ def test_build_ydl_options_targets_wav_output_in_destination_dir(tmp_path):
     assert options["postprocessor_args"]["extractaudio"] == ["-ar", "44100", "-ac", "2"]
 
 
+def test_build_ydl_options_sets_a_socket_timeout(tmp_path):
+    options = _build_ydl_options(tmp_path)
+
+    assert options["socket_timeout"] == 30
+
+
 def test_extract_raises_when_no_output_file_is_produced(tmp_path, source):
     extractor = YtDlpAudioExtractor()
 

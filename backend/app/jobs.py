@@ -9,6 +9,8 @@ class JobStatus(str, Enum):
     QUEUED = "queued"
     DOWNLOADING = "downloading"
     DOWNLOADED = "downloaded"
+    SEPARATING_STEMS = "separating_stems"
+    STEMS_SEPARATED = "stems_separated"
     FAILED = "failed"
 
 
@@ -19,6 +21,8 @@ class Job:
     status: JobStatus
     created_at: datetime
     audio_path: str | None = None
+    drums_path: str | None = None
+    accompaniment_path: str | None = None
     error: str | None = None
 
 

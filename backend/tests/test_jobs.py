@@ -65,3 +65,19 @@ def test_update_sets_error_on_failure():
 
     assert updated.status == JobStatus.FAILED
     assert updated.error == "boom"
+
+
+def test_update_sets_stem_paths_on_separation_success():
+    store = JobStore()
+    job = store.create(url="https://youtu.be/dQw4w9WgXcQ")
+
+    updated = store.update(
+        job.id,
+        status=JobStatus.STEMS_SEPARATED,
+        drums_path="/data/drums.wav",
+        accompaniment_path="/data/no_drums.wav",
+    )
+
+    assert updated.status == JobStatus.STEMS_SEPARATED
+    assert updated.drums_path == "/data/drums.wav"
+    assert updated.accompaniment_path == "/data/no_drums.wav"

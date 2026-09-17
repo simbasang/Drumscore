@@ -4,9 +4,11 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.audio_extraction import AudioExtractor
-from app.job_processor import run_audio_extraction
+from app.demucs_stem_separator import DemucsStemSeparator
+from app.job_processor import run_pipeline
 from app.jobs import Job, JobStatus, JobStore
 from app.media_source import InvalidSourceUrlError, MediaSourceValidator
+from app.stem_separation import StemSeparator
 from app.youtube_audio_extractor import YtDlpAudioExtractor
 from app.youtube_source import YouTubeSourceValidator
 
@@ -15,6 +17,7 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 _job_store = JobStore()
 _source_validator = YouTubeSourceValidator()
 _audio_extractor = YtDlpAudioExtractor()
+_stem_separator = DemucsStemSeparator()
 _storage_dir = Path(__file__).resolve().parent.parent.parent / "data" / "jobs"
 
 
@@ -30,6 +33,10 @@ def get_audio_extractor() -> AudioExtractor:
     return _audio_extractor
 
 
+def get_stem_separator() -> StemSeparator:
+    return _stem_separator
+
+
 def get_storage_dir() -> Path:
     return _storage_dir
 
@@ -43,6 +50,8 @@ class JobResponse(BaseModel):
     url: str
     status: JobStatus
     audio_path: str | None = None
+    drums_path: str | None = None
+    accompaniment_path: str | None = None
     error: str | None = None
 
     @classmethod
@@ -52,6 +61,8 @@ class JobResponse(BaseModel):
             url=job.url,
             status=job.status,
             audio_path=job.audio_path,
+            drums_path=job.drums_path,
+            accompaniment_path=job.accompaniment_path,
             error=job.error,
         )
 
@@ -63,6 +74,7 @@ def create_job(
     store: JobStore = Depends(get_job_store),
     validator: MediaSourceValidator = Depends(get_source_validator),
     extractor: AudioExtractor = Depends(get_audio_extractor),
+    separator: StemSeparator = Depends(get_stem_separator),
     storage_dir: Path = Depends(get_storage_dir),
 ) -> JobResponse:
     try:
@@ -72,7 +84,7 @@ def create_job(
 
     job = store.create(url=request.url)
     background_tasks.add_task(
-        run_audio_extraction, job.id, source, store, extractor, storage_dir
+        run_pipeline, job.id, source, store, extractor, separator, storage_dir
     )
     return JobResponse.from_job(job)
 

@@ -1,11 +1,18 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.jobs import get_audio_extractor, get_job_store, get_stem_separator, get_storage_dir
+from app.api.jobs import (
+    get_audio_extractor,
+    get_job_store,
+    get_stem_separator,
+    get_storage_dir,
+    get_transcriber,
+)
 from app.audio_extraction import AudioExtractionError
 from app.jobs import JobStore
 from app.main import app
 from app.stem_separation import SeparatedStems, StemSeparationError
+from app.transcription import DrumEvent, DrumInstrument, TranscriptionError
 
 client = TestClient(app)
 
@@ -38,17 +45,32 @@ class FailingStemSeparator:
         raise StemSeparationError("out of memory")
 
 
+class FakeTranscriber:
+    def transcribe(self, audio_path):
+        return [
+            DrumEvent(id="e1", time=0.5, instrument=DrumInstrument.KICK),
+            DrumEvent(id="e2", time=0.5, instrument=DrumInstrument.HIHAT_CLOSED),
+        ]
+
+
+class FailingTranscriber:
+    def transcribe(self, audio_path):
+        raise TranscriptionError("model crashed")
+
+
 @pytest.fixture(autouse=True)
 def isolated_dependencies(tmp_path):
     store = JobStore()
     app.dependency_overrides[get_job_store] = lambda: store
     app.dependency_overrides[get_audio_extractor] = lambda: FakeAudioExtractor()
     app.dependency_overrides[get_stem_separator] = lambda: FakeStemSeparator()
+    app.dependency_overrides[get_transcriber] = lambda: FakeTranscriber()
     app.dependency_overrides[get_storage_dir] = lambda: tmp_path
     yield store
     app.dependency_overrides.pop(get_job_store, None)
     app.dependency_overrides.pop(get_audio_extractor, None)
     app.dependency_overrides.pop(get_stem_separator, None)
+    app.dependency_overrides.pop(get_transcriber, None)
     app.dependency_overrides.pop(get_storage_dir, None)
 
 
@@ -69,17 +91,18 @@ def test_create_job_with_invalid_url_returns_422_with_detail():
     assert "not a supported YouTube URL" in response.json()["detail"]
 
 
-def test_create_job_runs_pipeline_to_stems_separated():
+def test_create_job_runs_pipeline_to_transcribed():
     create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
     job_id = create_response.json()["id"]
 
     response = client.get(f"/api/jobs/{job_id}")
 
     body = response.json()
-    assert body["status"] == "stems_separated"
+    assert body["status"] == "transcribed"
     assert body["audio_path"].endswith("source.wav")
     assert body["drums_path"].endswith("drums.wav")
     assert body["accompaniment_path"].endswith("no_drums.wav")
+    assert body["event_count"] == 2
 
 
 def test_create_job_reports_extraction_failure_as_job_error():
@@ -106,6 +129,19 @@ def test_create_job_reports_stem_separation_failure_as_job_error():
     body = response.json()
     assert body["status"] == "failed"
     assert body["error"] == "out of memory"
+
+
+def test_create_job_reports_transcription_failure_as_job_error():
+    app.dependency_overrides[get_transcriber] = lambda: FailingTranscriber()
+
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}")
+
+    body = response.json()
+    assert body["status"] == "failed"
+    assert body["error"] == "model crashed"
 
 
 def test_get_job_returns_previously_created_job():

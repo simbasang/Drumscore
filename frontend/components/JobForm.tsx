@@ -10,16 +10,25 @@ interface JobFormProps {
 
 const POLL_INTERVAL_MS = 2000;
 
-const TERMINAL_STATUSES: JobStatus[] = ["stems_separated", "failed"];
+const TERMINAL_STATUSES: JobStatus[] = ["transcribed", "failed"];
 
 const STATUS_LABELS: Record<JobStatus, string> = {
   queued: "queued",
   downloading: "Downloading audio...",
   downloaded: "Audio downloaded, starting stem separation...",
   separating_stems: "Separating drum stems...",
-  stems_separated: "Done — drums and accompaniment separated.",
+  stems_separated: "Drums and accompaniment separated, starting transcription...",
+  transcribing: "Transcribing drum hits...",
+  transcribed: "Done.",
   failed: "Failed.",
 };
+
+function statusLabel(job: Job): string {
+  if (job.status === "transcribed") {
+    return `Done — ${job.event_count ?? 0} drum hits detected.`;
+  }
+  return STATUS_LABELS[job.status];
+}
 
 export default function JobForm({ apiBaseUrl }: JobFormProps) {
   const [url, setUrl] = useState("");
@@ -98,7 +107,7 @@ export default function JobForm({ apiBaseUrl }: JobFormProps) {
       )}
       {job && job.status !== "failed" && (
         <p>
-          Job created: {job.id} — status: {STATUS_LABELS[job.status]}
+          Job created: {job.id} — status: {statusLabel(job)}
         </p>
       )}
     </div>

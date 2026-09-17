@@ -27,6 +27,17 @@ uv run uvicorn app.main:app --reload
 
 The API runs at `http://localhost:8000`. Health check: `GET /api/health`.
 
+Drum transcription runs in an isolated Python 3.12 environment (DrumScript
+requires `Python <3.13`, incompatible with the main backend's Python 3.13).
+Set it up once:
+
+```bash
+cd backend/drumscript_runner
+uv sync
+```
+
+The main backend invokes it as a subprocess — no need to run it separately.
+
 Run tests:
 
 ```bash

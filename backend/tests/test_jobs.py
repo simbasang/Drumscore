@@ -1,4 +1,5 @@
 from app.jobs import JobStatus, JobStore
+from app.transcription import DrumEvent, DrumInstrument
 
 
 def test_create_assigns_unique_id_and_queued_status():
@@ -65,6 +66,17 @@ def test_update_sets_error_on_failure():
 
     assert updated.status == JobStatus.FAILED
     assert updated.error == "boom"
+
+
+def test_update_sets_events_on_transcription_success():
+    store = JobStore()
+    job = store.create(url="https://youtu.be/dQw4w9WgXcQ")
+    events = [DrumEvent(id="e1", time=1.0, instrument=DrumInstrument.KICK)]
+
+    updated = store.update(job.id, status=JobStatus.TRANSCRIBED, events=events)
+
+    assert updated.status == JobStatus.TRANSCRIBED
+    assert updated.events == events
 
 
 def test_update_sets_stem_paths_on_separation_success():

@@ -5,10 +5,12 @@ from pydantic import BaseModel
 
 from app.audio_extraction import AudioExtractor
 from app.demucs_stem_separator import DemucsStemSeparator
+from app.drumscript_transcriber import DrumScriptTranscriber
 from app.job_processor import run_pipeline
 from app.jobs import Job, JobStatus, JobStore
 from app.media_source import InvalidSourceUrlError, MediaSourceValidator
 from app.stem_separation import StemSeparator
+from app.transcription import DrumTranscriber
 from app.youtube_audio_extractor import YtDlpAudioExtractor
 from app.youtube_source import YouTubeSourceValidator
 
@@ -18,6 +20,7 @@ _job_store = JobStore()
 _source_validator = YouTubeSourceValidator()
 _audio_extractor = YtDlpAudioExtractor()
 _stem_separator = DemucsStemSeparator()
+_transcriber = DrumScriptTranscriber()
 _storage_dir = Path(__file__).resolve().parent.parent.parent / "data" / "jobs"
 
 
@@ -37,6 +40,10 @@ def get_stem_separator() -> StemSeparator:
     return _stem_separator
 
 
+def get_transcriber() -> DrumTranscriber:
+    return _transcriber
+
+
 def get_storage_dir() -> Path:
     return _storage_dir
 
@@ -52,6 +59,7 @@ class JobResponse(BaseModel):
     audio_path: str | None = None
     drums_path: str | None = None
     accompaniment_path: str | None = None
+    event_count: int | None = None
     error: str | None = None
 
     @classmethod
@@ -63,6 +71,7 @@ class JobResponse(BaseModel):
             audio_path=job.audio_path,
             drums_path=job.drums_path,
             accompaniment_path=job.accompaniment_path,
+            event_count=len(job.events) if job.events is not None else None,
             error=job.error,
         )
 
@@ -75,6 +84,7 @@ def create_job(
     validator: MediaSourceValidator = Depends(get_source_validator),
     extractor: AudioExtractor = Depends(get_audio_extractor),
     separator: StemSeparator = Depends(get_stem_separator),
+    transcriber: DrumTranscriber = Depends(get_transcriber),
     storage_dir: Path = Depends(get_storage_dir),
 ) -> JobResponse:
     try:
@@ -84,7 +94,7 @@ def create_job(
 
     job = store.create(url=request.url)
     background_tasks.add_task(
-        run_pipeline, job.id, source, store, extractor, separator, storage_dir
+        run_pipeline, job.id, source, store, extractor, separator, transcriber, storage_dir
     )
     return JobResponse.from_job(job)
 

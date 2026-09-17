@@ -4,6 +4,7 @@ from app.audio_extraction import AudioExtractionError, AudioExtractor
 from app.jobs import JobStatus, JobStore
 from app.media_source import ParsedSource
 from app.stem_separation import StemSeparationError, StemSeparator
+from app.transcription import DrumTranscriber, TranscriptionError
 
 
 def run_audio_extraction(
@@ -34,17 +35,17 @@ def run_stem_separation(
     store: JobStore,
     separator: StemSeparator,
     destination_dir: Path,
-) -> None:
+) -> Path | None:
     store.update(job_id, status=JobStatus.SEPARATING_STEMS)
 
     try:
         stems = separator.separate(audio_path, destination_dir)
     except StemSeparationError as error:
         store.update(job_id, status=JobStatus.FAILED, error=str(error))
-        return
+        return None
     except Exception as error:  # noqa: BLE001 - guarantee the job reaches a terminal state
         store.update(job_id, status=JobStatus.FAILED, error=f"Unexpected error: {error}")
-        return
+        return None
 
     store.update(
         job_id,
@@ -52,6 +53,27 @@ def run_stem_separation(
         drums_path=str(stems.drums_path),
         accompaniment_path=str(stems.accompaniment_path),
     )
+    return stems.drums_path
+
+
+def run_transcription(
+    job_id: str,
+    drums_path: Path,
+    store: JobStore,
+    transcriber: DrumTranscriber,
+) -> None:
+    store.update(job_id, status=JobStatus.TRANSCRIBING)
+
+    try:
+        events = transcriber.transcribe(drums_path)
+    except TranscriptionError as error:
+        store.update(job_id, status=JobStatus.FAILED, error=str(error))
+        return
+    except Exception as error:  # noqa: BLE001 - guarantee the job reaches a terminal state
+        store.update(job_id, status=JobStatus.FAILED, error=f"Unexpected error: {error}")
+        return
+
+    store.update(job_id, status=JobStatus.TRANSCRIBED, events=events)
 
 
 def run_pipeline(
@@ -60,6 +82,7 @@ def run_pipeline(
     store: JobStore,
     extractor: AudioExtractor,
     separator: StemSeparator,
+    transcriber: DrumTranscriber,
     storage_dir: Path,
 ) -> None:
     job_dir = storage_dir / job_id
@@ -68,4 +91,9 @@ def run_pipeline(
     if audio_path is None:
         return
 
-    run_stem_separation(job_id, audio_path, store, separator, job_dir)
+    drums_path = run_stem_separation(job_id, audio_path, store, separator, job_dir)
+
+    if drums_path is None:
+        return
+
+    run_transcription(job_id, drums_path, store, transcriber)

@@ -1,9 +1,10 @@
 import pytest
 
 from app.audio_extraction import AudioExtractionError
-from app.job_processor import run_audio_extraction
+from app.job_processor import run_audio_extraction, run_pipeline, run_stem_separation
 from app.jobs import JobStatus, JobStore
 from app.media_source import ParsedSource
+from app.stem_separation import SeparatedStems, StemSeparationError
 
 
 @pytest.fixture
@@ -61,3 +62,72 @@ def test_run_audio_extraction_sets_status_to_downloading_while_extracting(tmp_pa
     run_audio_extraction(job.id, source, store, RecordingExtractor(), tmp_path)
 
     assert seen_status == JobStatus.DOWNLOADING
+
+
+class FakeSuccessfulSeparator:
+    def separate(self, audio_path, destination_dir):
+        return SeparatedStems(
+            drums_path=destination_dir / "drums.wav",
+            accompaniment_path=destination_dir / "no_drums.wav",
+        )
+
+
+class FakeFailingSeparator:
+    def separate(self, audio_path, destination_dir):
+        raise StemSeparationError("separation blew up")
+
+
+def test_run_stem_separation_marks_job_stems_separated_on_success(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+
+    run_stem_separation(job.id, tmp_path / "source.wav", store, FakeSuccessfulSeparator(), tmp_path)
+
+    updated = store.get(job.id)
+    assert updated.status == JobStatus.STEMS_SEPARATED
+    assert updated.drums_path == str(tmp_path / "drums.wav")
+    assert updated.accompaniment_path == str(tmp_path / "no_drums.wav")
+
+
+def test_run_stem_separation_marks_job_failed_on_error(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+
+    run_stem_separation(job.id, tmp_path / "source.wav", store, FakeFailingSeparator(), tmp_path)
+
+    updated = store.get(job.id)
+    assert updated.status == JobStatus.FAILED
+    assert updated.error == "separation blew up"
+
+
+def test_run_pipeline_runs_extraction_then_separation_on_success(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+
+    run_pipeline(
+        job.id, source, store, FakeSuccessfulExtractor(), FakeSuccessfulSeparator(), tmp_path
+    )
+
+    updated = store.get(job.id)
+    assert updated.status == JobStatus.STEMS_SEPARATED
+    assert updated.audio_path == str(tmp_path / job.id / "source.wav")
+    assert updated.drums_path == str(tmp_path / job.id / "drums.wav")
+
+
+def test_run_pipeline_stops_before_separation_when_extraction_fails(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+    separator_called = False
+
+    class SpySeparator:
+        def separate(self, audio_path, destination_dir):
+            nonlocal separator_called
+            separator_called = True
+            return SeparatedStems(drums_path=destination_dir / "drums.wav", accompaniment_path=destination_dir / "no_drums.wav")
+
+    run_pipeline(job.id, source, store, FakeFailingExtractor(), SpySeparator(), tmp_path)
+
+    updated = store.get(job.id)
+    assert updated.status == JobStatus.FAILED
+    assert updated.error == "could not download video"
+    assert separator_called is False

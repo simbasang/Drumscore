@@ -1,24 +1,27 @@
 import { render, screen } from "@testing-library/react";
 
-import { getBackendHealth } from "@/lib/api/health";
 import Home from "../page";
 
-jest.mock("@/lib/api/health");
+jest.mock("@/components/JobForm", () => {
+  return function MockJobForm({ apiBaseUrl }: { apiBaseUrl: string }) {
+    return <div data-testid="job-form" data-api-base-url={apiBaseUrl} />;
+  };
+});
 
 describe("Home", () => {
-  it("should display the backend status when the health check succeeds", async () => {
-    (getBackendHealth as jest.Mock).mockResolvedValue({ status: "ok" });
+  it("should render the page heading and description", () => {
+    render(<Home />);
 
-    render(await Home());
-
-    expect(screen.getByText(/backend status: ok/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /drumscore/i })).toBeInTheDocument();
+    expect(screen.getByText(/generate playable drum notation/i)).toBeInTheDocument();
   });
 
-  it("should display an error message when the health check fails", async () => {
-    (getBackendHealth as jest.Mock).mockRejectedValue(new Error("boom"));
+  it("should render the job form with the configured API base URL", () => {
+    render(<Home />);
 
-    render(await Home());
-
-    expect(screen.getByText(/backend status: unreachable/i)).toBeInTheDocument();
+    expect(screen.getByTestId("job-form")).toHaveAttribute(
+      "data-api-base-url",
+      "http://localhost:8000",
+    );
   });
 });

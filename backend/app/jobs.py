@@ -1,3 +1,4 @@
+import dataclasses
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -6,6 +7,9 @@ from enum import Enum
 
 class JobStatus(str, Enum):
     QUEUED = "queued"
+    DOWNLOADING = "downloading"
+    DOWNLOADED = "downloaded"
+    FAILED = "failed"
 
 
 @dataclass(frozen=True)
@@ -14,6 +18,8 @@ class Job:
     url: str
     status: JobStatus
     created_at: datetime
+    audio_path: str | None = None
+    error: str | None = None
 
 
 class JobStore:
@@ -32,3 +38,9 @@ class JobStore:
 
     def get(self, job_id: str) -> Job | None:
         return self._jobs.get(job_id)
+
+    def update(self, job_id: str, **changes: object) -> Job:
+        current = self._jobs[job_id]
+        updated = dataclasses.replace(current, **changes)
+        self._jobs[job_id] = updated
+        return updated

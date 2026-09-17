@@ -1,19 +1,37 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.jobs import get_job_store
+from app.api.jobs import get_audio_extractor, get_job_store, get_storage_dir
+from app.audio_extraction import AudioExtractionError
 from app.jobs import JobStore
 from app.main import app
 
 client = TestClient(app)
 
 
+class FakeAudioExtractor:
+    def extract(self, source, destination_dir):
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        path = destination_dir / "source.wav"
+        path.write_bytes(b"fake wav data")
+        return path
+
+
+class FailingAudioExtractor:
+    def extract(self, source, destination_dir):
+        raise AudioExtractionError("video unavailable")
+
+
 @pytest.fixture(autouse=True)
-def isolated_job_store():
+def isolated_dependencies(tmp_path):
     store = JobStore()
     app.dependency_overrides[get_job_store] = lambda: store
+    app.dependency_overrides[get_audio_extractor] = lambda: FakeAudioExtractor()
+    app.dependency_overrides[get_storage_dir] = lambda: tmp_path
     yield store
     app.dependency_overrides.pop(get_job_store, None)
+    app.dependency_overrides.pop(get_audio_extractor, None)
+    app.dependency_overrides.pop(get_storage_dir, None)
 
 
 def test_create_job_with_valid_url_returns_queued_job():
@@ -31,6 +49,30 @@ def test_create_job_with_invalid_url_returns_422_with_detail():
 
     assert response.status_code == 422
     assert "not a supported YouTube URL" in response.json()["detail"]
+
+
+def test_create_job_triggers_background_audio_extraction():
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}")
+
+    body = response.json()
+    assert body["status"] == "downloaded"
+    assert body["audio_path"].endswith("source.wav")
+
+
+def test_create_job_reports_extraction_failure_as_job_error():
+    app.dependency_overrides[get_audio_extractor] = lambda: FailingAudioExtractor()
+
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}")
+
+    body = response.json()
+    assert body["status"] == "failed"
+    assert body["error"] == "video unavailable"
 
 
 def test_get_job_returns_previously_created_job():

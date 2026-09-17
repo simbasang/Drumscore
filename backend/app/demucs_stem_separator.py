@@ -5,28 +5,35 @@ from pathlib import Path
 from app.stem_separation import SeparatedStems, StemSeparationError
 
 _MODEL_NAME = "htdemucs"
+_TIMEOUT_SECONDS = 600
 
 
 class DemucsStemSeparator:
     def separate(self, audio_path: Path, destination_dir: Path) -> SeparatedStems:
         destination_dir.mkdir(parents=True, exist_ok=True)
 
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "demucs",
-                "--two-stems",
-                "drums",
-                "-n",
-                _MODEL_NAME,
-                "-o",
-                str(destination_dir),
-                str(audio_path),
-            ],
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "demucs",
+                    "--two-stems",
+                    "drums",
+                    "-n",
+                    _MODEL_NAME,
+                    "-o",
+                    str(destination_dir),
+                    str(audio_path),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise StemSeparationError(
+                f"Demucs timed out after {_TIMEOUT_SECONDS} seconds"
+            ) from error
 
         if result.returncode != 0:
             raise StemSeparationError(f"Demucs failed: {result.stderr.strip()}")

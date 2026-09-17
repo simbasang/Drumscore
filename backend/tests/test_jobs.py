@@ -35,3 +35,33 @@ def test_get_returns_none_for_unknown_id():
     found = store.get("does-not-exist")
 
     assert found is None
+
+
+def test_update_changes_status_and_returns_updated_job():
+    store = JobStore()
+    job = store.create(url="https://youtu.be/dQw4w9WgXcQ")
+
+    updated = store.update(job.id, status=JobStatus.DOWNLOADING)
+
+    assert updated.status == JobStatus.DOWNLOADING
+    assert store.get(job.id).status == JobStatus.DOWNLOADING
+
+
+def test_update_sets_audio_path_on_success():
+    store = JobStore()
+    job = store.create(url="https://youtu.be/dQw4w9WgXcQ")
+
+    updated = store.update(job.id, status=JobStatus.DOWNLOADED, audio_path="/data/source.wav")
+
+    assert updated.status == JobStatus.DOWNLOADED
+    assert updated.audio_path == "/data/source.wav"
+
+
+def test_update_sets_error_on_failure():
+    store = JobStore()
+    job = store.create(url="https://youtu.be/dQw4w9WgXcQ")
+
+    updated = store.update(job.id, status=JobStatus.FAILED, error="boom")
+
+    assert updated.status == JobStatus.FAILED
+    assert updated.error == "boom"

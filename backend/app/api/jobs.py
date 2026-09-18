@@ -7,7 +7,8 @@ from pydantic import BaseModel
 from app.audio_extraction import AudioExtractor
 from app.demucs_stem_separator import DemucsStemSeparator
 from app.drumscript_transcriber import DrumScriptTranscriber
-from app.job_processor import run_pipeline
+from app.job_cleanup import cleanup_old_jobs
+from app.job_processor import PipelineConcurrencyLimiter, run_pipeline
 from app.jobs import Job, JobStatus, JobStore
 from app.librosa_tempo_estimator import LibrosaTempoEstimator
 from app.media_source import InvalidSourceUrlError, MediaSourceValidator
@@ -26,8 +27,11 @@ _stem_separator = DemucsStemSeparator()
 _transcriber = DrumScriptTranscriber()
 _tempo_estimator = LibrosaTempoEstimator()
 _storage_dir = Path(__file__).resolve().parent.parent.parent / "data" / "jobs"
+_pipeline_limiter = PipelineConcurrencyLimiter()
 
 
+# These getters are only ever exercised via FastAPI's dependency-injection
+# override mechanism in tests, never called directly as themselves.
 def get_job_store() -> JobStore:
     return _job_store
 
@@ -54,6 +58,10 @@ def get_tempo_estimator() -> TempoEstimator:
 
 def get_storage_dir() -> Path:
     return _storage_dir
+
+
+def get_pipeline_limiter() -> PipelineConcurrencyLimiter:
+    return _pipeline_limiter
 
 
 class CreateJobRequest(BaseModel):
@@ -97,14 +105,17 @@ def create_job(
     transcriber: DrumTranscriber = Depends(get_transcriber),
     tempo_estimator: TempoEstimator = Depends(get_tempo_estimator),
     storage_dir: Path = Depends(get_storage_dir),
+    limiter: PipelineConcurrencyLimiter = Depends(get_pipeline_limiter),
 ) -> JobResponse:
     try:
         source = validator.parse(request.url)
     except InvalidSourceUrlError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
+    cleanup_old_jobs(store, storage_dir)
     job = store.create(url=request.url)
     background_tasks.add_task(
+        limiter.run,
         run_pipeline,
         job.id,
         source,
@@ -116,6 +127,47 @@ def create_job(
         storage_dir,
     )
     return JobResponse.from_job(job)
+
+
+@router.post("/{job_id}/retry", response_model=JobResponse, status_code=202)
+def retry_job(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    store: JobStore = Depends(get_job_store),
+    validator: MediaSourceValidator = Depends(get_source_validator),
+    extractor: AudioExtractor = Depends(get_audio_extractor),
+    separator: StemSeparator = Depends(get_stem_separator),
+    transcriber: DrumTranscriber = Depends(get_transcriber),
+    tempo_estimator: TempoEstimator = Depends(get_tempo_estimator),
+    storage_dir: Path = Depends(get_storage_dir),
+    limiter: PipelineConcurrencyLimiter = Depends(get_pipeline_limiter),
+) -> JobResponse:
+    job = store.get(job_id)
+
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status != JobStatus.FAILED:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Only a failed job can be retried; current status is {job.status.value}",
+        )
+
+    source = validator.parse(job.url)
+    updated = store.update(job_id, status=JobStatus.QUEUED, error=None)
+    background_tasks.add_task(
+        limiter.run,
+        run_pipeline,
+        job_id,
+        source,
+        store,
+        extractor,
+        separator,
+        transcriber,
+        tempo_estimator,
+        storage_dir,
+    )
+    return JobResponse.from_job(updated)
 
 
 @router.get("/{job_id}", response_model=JobResponse)

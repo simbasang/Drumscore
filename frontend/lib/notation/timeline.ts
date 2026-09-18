@@ -39,6 +39,10 @@ export function interpolatePlayheadX(points: TimelinePoint[], time: number): Tim
     const a = points[i];
     const b = points[i + 1];
     if (time >= a.time && time <= b.time) {
+      // Unreachable while points are sorted by non-decreasing time: any
+      // pair sharing a.time with an earlier point would already have been
+      // matched (and returned) by that earlier bracket first. Guards
+      // against a division by zero if that invariant is ever broken.
       if (b.time === a.time) {
         return a;
       }
@@ -47,5 +51,31 @@ export function interpolatePlayheadX(points: TimelinePoint[], time: number): Tim
     }
   }
 
+  // Unreachable given sorted points and the clamps above: any time strictly
+  // between the first and last point's time is guaranteed to fall inside
+  // some consecutive pair. Kept as a safety net if that invariant breaks.
   return last;
+}
+
+const DEFAULT_AUTO_SCROLL_MARGIN = 40;
+
+// Keeps a target x position within view, without moving anything while it
+// already sits comfortably inside the current viewport - so the playhead
+// stays visible during playback without fighting the user's own scrolling.
+export function computeAutoScrollLeft(
+  currentScrollLeft: number,
+  viewportWidth: number,
+  targetX: number,
+  margin: number = DEFAULT_AUTO_SCROLL_MARGIN,
+): number {
+  const visibleStart = currentScrollLeft + margin;
+  const visibleEnd = currentScrollLeft + viewportWidth - margin;
+
+  if (targetX < visibleStart) {
+    return Math.max(0, targetX - margin);
+  }
+  if (targetX > visibleEnd) {
+    return Math.max(0, targetX - viewportWidth + margin);
+  }
+  return currentScrollLeft;
 }

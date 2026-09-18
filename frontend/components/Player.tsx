@@ -46,6 +46,7 @@ export default function Player({
   const [drumsVolume, setDrumsVolume] = useState(1);
   const playerRef = useRef<SyncedPlayer | null>(null);
   const rafRef = useRef<number | null>(null);
+  const contextRef = useRef<DecodableAudioContext | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,6 +54,7 @@ export default function Player({
     async function load() {
       try {
         const context = createAudioContext();
+        contextRef.current = context;
         const [drumsBuffer, accompanimentBuffer] = await Promise.all([
           loadAudioBuffer(`${apiBaseUrl}/api/jobs/${jobId}/audio/drums`, context),
           loadAudioBuffer(`${apiBaseUrl}/api/jobs/${jobId}/audio/accompaniment`, context),
@@ -81,11 +83,16 @@ export default function Player({
         cancelAnimationFrame(rafRef.current);
       }
       playerRef.current?.pause();
+      contextRef.current?.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiBaseUrl, jobId]);
 
   function tick() {
+    // playerRef.current is only ever null before status becomes "ready", at
+    // which point none of tick/handlePlayPause/handleSeek/handleVolumeChange/
+    // handleDrumsVolumeChange can be invoked yet (their controls aren't
+    // rendered). Kept as a defensive type narrowing, not reachable via the UI.
     const player = playerRef.current;
     if (!player) {
       return;
@@ -93,6 +100,8 @@ export default function Player({
     setCurrentTime(player.getCurrentTime());
     if (player.isPlaying) {
       rafRef.current = requestAnimationFrame(tick);
+    } else {
+      setIsPlaying(false);
     }
   }
 

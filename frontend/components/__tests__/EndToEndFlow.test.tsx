@@ -24,6 +24,7 @@ class FakeBufferSource {
 class FakeAudioContext {
   currentTime = 0;
   destination = {};
+  close = jest.fn();
   createBufferSource() {
     return new FakeBufferSource();
   }

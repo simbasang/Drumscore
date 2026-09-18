@@ -1,7 +1,11 @@
+import threading
+import time
+
 import pytest
 
 from app.audio_extraction import AudioExtractionError
 from app.job_processor import (
+    PipelineConcurrencyLimiter,
     run_audio_extraction,
     run_pipeline,
     run_stem_separation,
@@ -344,3 +348,164 @@ def test_run_pipeline_stops_before_tempo_mapping_when_transcription_fails(tmp_pa
     assert updated.status == JobStatus.FAILED
     assert updated.error == "transcription blew up"
     assert estimator_called is False
+
+
+def test_run_pipeline_resumes_from_stem_separation_when_audio_already_downloaded(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+    audio_path = tmp_path / job.id / "source.wav"
+    store.update(job.id, status=JobStatus.FAILED, audio_path=str(audio_path))
+    extractor_called = False
+
+    class SpyExtractor:
+        def extract(self, source, destination_dir):
+            nonlocal extractor_called
+            extractor_called = True
+            return destination_dir / "source.wav"
+
+    run_pipeline(
+        job.id,
+        source,
+        store,
+        SpyExtractor(),
+        FakeSuccessfulSeparator(),
+        FakeSuccessfulTranscriber(),
+        FakeSuccessfulTempoEstimator(),
+        tmp_path,
+    )
+
+    updated = store.get(job.id)
+    assert extractor_called is False
+    assert updated.status == JobStatus.TEMPO_MAPPED
+
+
+def test_run_pipeline_resumes_from_transcription_when_stems_already_separated(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+    audio_path = tmp_path / job.id / "source.wav"
+    drums_path = tmp_path / "drums.wav"
+    store.update(
+        job.id,
+        status=JobStatus.FAILED,
+        audio_path=str(audio_path),
+        drums_path=str(drums_path),
+        accompaniment_path=str(tmp_path / "no_drums.wav"),
+    )
+    separator_called = False
+
+    class SpySeparator:
+        def separate(self, audio_path, destination_dir):
+            nonlocal separator_called
+            separator_called = True
+            return SeparatedStems(
+                drums_path=destination_dir / "drums.wav",
+                accompaniment_path=destination_dir / "no_drums.wav",
+            )
+
+    run_pipeline(
+        job.id,
+        source,
+        store,
+        FakeSuccessfulExtractor(),
+        SpySeparator(),
+        FakeSuccessfulTranscriber(),
+        FakeSuccessfulTempoEstimator(),
+        tmp_path,
+    )
+
+    updated = store.get(job.id)
+    assert separator_called is False
+    assert updated.status == JobStatus.TEMPO_MAPPED
+
+
+def test_run_pipeline_resumes_from_tempo_mapping_when_events_already_transcribed(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+    events = [DrumEvent(id="e1", time=1.0, instrument=DrumInstrument.KICK)]
+    store.update(
+        job.id,
+        status=JobStatus.FAILED,
+        audio_path=str(tmp_path / job.id / "source.wav"),
+        drums_path=str(tmp_path / "drums.wav"),
+        accompaniment_path=str(tmp_path / "no_drums.wav"),
+        events=events,
+    )
+    transcriber_called = False
+
+    class SpyTranscriber:
+        def transcribe(self, audio_path):
+            nonlocal transcriber_called
+            transcriber_called = True
+            return events
+
+    run_pipeline(
+        job.id,
+        source,
+        store,
+        FakeSuccessfulExtractor(),
+        FakeSuccessfulSeparator(),
+        SpyTranscriber(),
+        FakeSuccessfulTempoEstimator(),
+        tmp_path,
+    )
+
+    updated = store.get(job.id)
+    assert transcriber_called is False
+    assert updated.status == JobStatus.TEMPO_MAPPED
+
+
+def test_concurrency_limiter_runs_calls_immediately_up_to_the_configured_limit():
+    limiter = PipelineConcurrencyLimiter(max_concurrent=2)
+    running: list[str] = []
+    lock = threading.Lock()
+    release = threading.Event()
+
+    def task(name: str) -> None:
+        with lock:
+            running.append(name)
+        release.wait(timeout=2)
+
+    threads = [threading.Thread(target=limiter.run, args=(task, f"job-{i}")) for i in range(2)]
+    for t in threads:
+        t.start()
+    time.sleep(0.1)
+
+    assert sorted(running) == ["job-0", "job-1"]
+
+    release.set()
+    for t in threads:
+        t.join(timeout=2)
+
+
+def test_concurrency_limiter_blocks_additional_calls_until_a_slot_frees_up():
+    limiter = PipelineConcurrencyLimiter(max_concurrent=1)
+    running: list[str] = []
+    lock = threading.Lock()
+    first_started = threading.Event()
+    release_first = threading.Event()
+
+    def first_task() -> None:
+        with lock:
+            running.append("first")
+        first_started.set()
+        release_first.wait(timeout=2)
+
+    def second_task() -> None:
+        with lock:
+            running.append("second")
+
+    first_thread = threading.Thread(target=limiter.run, args=(first_task,))
+    first_thread.start()
+    first_started.wait(timeout=2)
+
+    second_thread = threading.Thread(target=limiter.run, args=(second_task,))
+    second_thread.start()
+    time.sleep(0.1)
+
+    assert running == ["first"]
+
+    release_first.set()
+    first_thread.join(timeout=2)
+    second_thread.join(timeout=2)
+
+    assert running == ["first", "second"]

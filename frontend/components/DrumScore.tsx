@@ -6,7 +6,12 @@ import { Beam, Formatter, Fraction, Renderer, Stave, Voice } from "vexflow";
 import type { AnalysisEvent } from "@/lib/api/jobs";
 import { BEATS_PER_MEASURE, SUBDIVISIONS_PER_BEAT, buildMeasures } from "@/lib/notation/buildScore";
 import { buildStaveNote } from "@/lib/notation/buildStaveNote";
-import { computeSlotTimeSeconds, interpolatePlayheadX, type TimelinePoint } from "@/lib/notation/timeline";
+import {
+  computeAutoScrollLeft,
+  computeSlotTimeSeconds,
+  interpolatePlayheadX,
+  type TimelinePoint,
+} from "@/lib/notation/timeline";
 
 interface DrumScoreProps {
   events: AnalysisEvent[];
@@ -25,6 +30,9 @@ export default function DrumScore({ events, tempoBpm, currentTime }: DrumScorePr
   const timelineRef = useRef<TimelinePoint[]>([]);
 
   useEffect(() => {
+    // containerRef is attached to the div this component always renders,
+    // so React guarantees it's set before this effect runs; this guard only
+    // satisfies the nullable ref type.
     const container = containerRef.current;
     if (!container) {
       return;
@@ -78,8 +86,9 @@ export default function DrumScore({ events, tempoBpm, currentTime }: DrumScorePr
 
       const measureNumber = index + 1;
       notes.forEach((note, slotIndex) => {
-        const beat = Math.floor(slotIndex / SUBDIVISIONS_PER_BEAT) + 1;
-        const subdivision = slotIndex % SUBDIVISIONS_PER_BEAT;
+        const startSixteenth = measure[slotIndex].startSixteenth;
+        const beat = Math.floor(startSixteenth / SUBDIVISIONS_PER_BEAT) + 1;
+        const subdivision = startSixteenth % SUBDIVISIONS_PER_BEAT;
         const time = computeSlotTimeSeconds(
           measureNumber,
           beat,
@@ -104,6 +113,9 @@ export default function DrumScore({ events, tempoBpm, currentTime }: DrumScorePr
       return;
     }
 
+    // Every measure produced by buildMeasures contributes at least one
+    // timeline point, so this is only null when the svg guard above already
+    // returned (no measures rendered); kept as a defensive type narrowing.
     const point = interpolatePlayheadX(timelineRef.current, currentTime);
     if (!point) {
       return;
@@ -124,6 +136,8 @@ export default function DrumScore({ events, tempoBpm, currentTime }: DrumScorePr
     line.setAttribute("x2", String(point.x));
     line.setAttribute("y1", String(yTop));
     line.setAttribute("y2", String(yBottom));
+
+    container.scrollLeft = computeAutoScrollLeft(container.scrollLeft, container.clientWidth, point.x);
   }, [currentTime]);
 
   return (

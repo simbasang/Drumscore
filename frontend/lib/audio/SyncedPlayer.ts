@@ -63,6 +63,7 @@ export class SyncedPlayer {
     if (this.playing) {
       return;
     }
+    this.offset = Math.max(0, Math.min(this.offset, this.duration));
     this.startSources(this.offset);
     this.startContextTime = this.context.currentTime;
     this.playing = true;
@@ -94,7 +95,14 @@ export class SyncedPlayer {
     if (!this.playing) {
       return this.offset;
     }
-    return this.offset + (this.context.currentTime - this.startContextTime);
+    const elapsed = this.offset + (this.context.currentTime - this.startContextTime);
+    if (elapsed >= this.duration) {
+      this.stopSources();
+      this.playing = false;
+      this.offset = this.duration;
+      return this.offset;
+    }
+    return elapsed;
   }
 
   setMasterVolume(value: number): void {

@@ -51,6 +51,12 @@ class JobStore:
     def get(self, job_id: str) -> Job | None:
         return self._jobs.get(job_id)
 
+    def list_all(self) -> list[Job]:
+        return list(self._jobs.values())
+
+    def delete(self, job_id: str) -> None:
+        self._jobs.pop(job_id, None)
+
     def update(self, job_id: str, **changes: object) -> Job:
         current = self._jobs[job_id]
         updated = dataclasses.replace(current, **changes)

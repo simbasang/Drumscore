@@ -72,5 +72,11 @@ export default function DrumScore({ events }: DrumScoreProps) {
     });
   }, [events]);
 
-  return <div ref={containerRef} data-testid="drum-score" />;
+  return (
+    <div
+      ref={containerRef}
+      data-testid="drum-score"
+      style={{ width: "100%", overflowX: "auto" }}
+    />
+  );
 }

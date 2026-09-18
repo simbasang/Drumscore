@@ -113,7 +113,7 @@ export default function JobForm({ apiBaseUrl }: JobFormProps) {
   }
 
   return (
-    <div>
+    <div style={{ width: "100%" }}>
       <form onSubmit={handleSubmit}>
         <label htmlFor="youtube-url">YouTube URL</label>
         <input

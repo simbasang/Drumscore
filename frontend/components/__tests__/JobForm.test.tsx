@@ -62,7 +62,7 @@ describe("JobForm", () => {
       jest.useRealTimers();
     });
 
-    it("should poll for job status until it reaches stems_separated", async () => {
+    it("should poll for job status until it reaches transcribed", async () => {
       (createJob as jest.Mock).mockResolvedValue({
         id: "job-1",
         url: "https://youtu.be/dQw4w9WgXcQ",
@@ -71,10 +71,11 @@ describe("JobForm", () => {
       (getJob as jest.Mock)
         .mockResolvedValueOnce({ id: "job-1", status: "downloading" })
         .mockResolvedValueOnce({ id: "job-1", status: "separating_stems" })
+        .mockResolvedValueOnce({ id: "job-1", status: "transcribing" })
         .mockResolvedValueOnce({
           id: "job-1",
-          status: "stems_separated",
-          drums_path: "/data/drums.wav",
+          status: "transcribed",
+          event_count: 42,
         });
 
       render(<JobForm apiBaseUrl="http://localhost:8000" />);
@@ -94,7 +95,12 @@ describe("JobForm", () => {
       await act(async () => {
         jest.advanceTimersByTime(2000);
       });
-      expect(screen.getByText(/drums and accompaniment separated/i)).toBeInTheDocument();
+      expect(screen.getByText(/transcribing drum hits/i)).toBeInTheDocument();
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(screen.getByText(/42 drum hits detected/i)).toBeInTheDocument();
 
       const callsAfterDone = (getJob as jest.Mock).mock.calls.length;
       await act(async () => {

@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 
+from app.transcription import DrumEvent
+
 
 class JobStatus(str, Enum):
     QUEUED = "queued"
@@ -11,6 +13,8 @@ class JobStatus(str, Enum):
     DOWNLOADED = "downloaded"
     SEPARATING_STEMS = "separating_stems"
     STEMS_SEPARATED = "stems_separated"
+    TRANSCRIBING = "transcribing"
+    TRANSCRIBED = "transcribed"
     FAILED = "failed"
 
 
@@ -23,6 +27,7 @@ class Job:
     audio_path: str | None = None
     drums_path: str | None = None
     accompaniment_path: str | None = None
+    events: list[DrumEvent] | None = None
     error: str | None = None
 
 

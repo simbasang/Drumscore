@@ -4,6 +4,8 @@ export type JobStatus =
   | "downloaded"
   | "separating_stems"
   | "stems_separated"
+  | "transcribing"
+  | "transcribed"
   | "failed";
 
 export interface Job {
@@ -13,6 +15,7 @@ export interface Job {
   audio_path?: string | null;
   drums_path?: string | null;
   accompaniment_path?: string | null;
+  event_count?: number | null;
   error?: string | null;
 }
 

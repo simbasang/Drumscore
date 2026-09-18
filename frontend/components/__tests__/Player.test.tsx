@@ -63,6 +63,7 @@ describe("Player", () => {
     expect(await screen.findByRole("button", { name: /play/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/seek/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/master volume/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/drums volume/i)).toBeInTheDocument();
   });
 
   it("should show an error message when audio fails to load", async () => {
@@ -145,5 +146,24 @@ describe("Player", () => {
     fireEvent.change(screen.getByLabelText(/master volume/i), { target: { value: "50" } });
 
     expect(playerInstance.setMasterVolume).toHaveBeenCalledWith(0.5);
+  });
+
+  it("should set drums volume by calling player.setDrumsVolume with a 0-1 value", async () => {
+    const startLength = MockedSyncedPlayer.mock.instances.length;
+    render(
+      <Player
+        apiBaseUrl="http://localhost:8000"
+        jobId="job-1"
+        events={[]}
+        tempoBpm={120}
+        createAudioContext={fakeContextFactory}
+      />,
+    );
+    await screen.findByRole("button", { name: /play/i });
+    const playerInstance = MockedSyncedPlayer.mock.instances[startLength];
+
+    fireEvent.change(screen.getByLabelText(/drums volume/i), { target: { value: "0" } });
+
+    expect(playerInstance.setDrumsVolume).toHaveBeenCalledWith(0);
   });
 });

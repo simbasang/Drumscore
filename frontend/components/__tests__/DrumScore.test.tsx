@@ -19,6 +19,7 @@ describe("DrumScore", () => {
   it("should render an SVG score without throwing for a simple beat", () => {
     render(
       <DrumScore
+        tempoBpm={120}
         events={[
           event({ id: "1", instrument: "kick", beat: 1, subdivision: 0 }),
           event({ id: "2", instrument: "hihat_closed", beat: 1, subdivision: 0 }),
@@ -36,7 +37,7 @@ describe("DrumScore", () => {
   });
 
   it("should render nothing extra for an empty event list", () => {
-    render(<DrumScore events={[]} />);
+    render(<DrumScore tempoBpm={120} events={[]} />);
 
     const container = screen.getByTestId("drum-score");
 
@@ -46,6 +47,7 @@ describe("DrumScore", () => {
   it("should force every note's stem upward, including kick and snare", () => {
     render(
       <DrumScore
+        tempoBpm={120}
         events={[
           event({ id: "1", instrument: "kick", beat: 1, subdivision: 0 }),
           event({ id: "2", instrument: "snare", beat: 2, subdivision: 0 }),
@@ -57,5 +59,43 @@ describe("DrumScore", () => {
     const stemPaths = container.querySelectorAll(".vf-stem");
 
     expect(stemPaths.length).toBeGreaterThan(0);
+  });
+
+  it("should not draw a playhead line when currentTime is not provided", () => {
+    render(
+      <DrumScore tempoBpm={120} events={[event({ id: "1", beat: 1, subdivision: 0 })]} />,
+    );
+
+    const container = screen.getByTestId("drum-score");
+
+    expect(container.querySelector("#drum-score-playhead")).toBeNull();
+  });
+
+  it("should draw a playhead line positioned at the current time", () => {
+    const { rerender } = render(
+      <DrumScore
+        tempoBpm={120}
+        currentTime={0}
+        events={[event({ id: "1", beat: 1, subdivision: 0 })]}
+      />,
+    );
+
+    const container = screen.getByTestId("drum-score");
+    const lineAtStart = container.querySelector("#drum-score-playhead");
+    expect(lineAtStart).not.toBeNull();
+    const xAtStart = Number(lineAtStart?.getAttribute("x1"));
+
+    rerender(
+      <DrumScore
+        tempoBpm={120}
+        currentTime={1}
+        events={[event({ id: "1", beat: 1, subdivision: 0 })]}
+      />,
+    );
+
+    const lineLater = container.querySelector("#drum-score-playhead");
+    const xLater = Number(lineLater?.getAttribute("x1"));
+
+    expect(xLater).toBeGreaterThan(xAtStart);
   });
 });

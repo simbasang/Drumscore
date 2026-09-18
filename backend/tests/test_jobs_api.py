@@ -203,6 +203,51 @@ def test_get_analysis_returns_404_for_unknown_job():
     assert response.status_code == 404
 
 
+def test_get_drums_audio_returns_file_when_available():
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}/audio/drums")
+
+    assert response.status_code == 200
+    assert response.content == b"fake drums"
+    assert response.headers["content-type"] == "audio/wav"
+
+
+def test_get_accompaniment_audio_returns_file_when_available():
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}/audio/accompaniment")
+
+    assert response.status_code == 200
+    assert response.content == b"fake accompaniment"
+    assert response.headers["content-type"] == "audio/wav"
+
+
+def test_get_drums_audio_returns_404_for_unknown_job():
+    response = client.get("/api/jobs/does-not-exist/audio/drums")
+
+    assert response.status_code == 404
+
+
+def test_get_accompaniment_audio_returns_404_for_unknown_job():
+    response = client.get("/api/jobs/does-not-exist/audio/accompaniment")
+
+    assert response.status_code == 404
+
+
+def test_get_drums_audio_returns_409_when_not_ready_yet():
+    app.dependency_overrides[get_audio_extractor] = lambda: FailingAudioExtractor()
+
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}/audio/drums")
+
+    assert response.status_code == 409
+
+
 def test_get_job_returns_previously_created_job():
     create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
     job_id = create_response.json()["id"]

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.audio_extraction import AudioExtractor
@@ -125,6 +126,40 @@ def get_job(job_id: str, store: JobStore = Depends(get_job_store)) -> JobRespons
         raise HTTPException(status_code=404, detail="Job not found")
 
     return JobResponse.from_job(job)
+
+
+@router.get("/{job_id}/audio/drums")
+def get_job_drums_audio(job_id: str, store: JobStore = Depends(get_job_store)) -> FileResponse:
+    job = store.get(job_id)
+
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.drums_path is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Drum audio not available yet: job status is {job.status.value}",
+        )
+
+    return FileResponse(job.drums_path, media_type="audio/wav")
+
+
+@router.get("/{job_id}/audio/accompaniment")
+def get_job_accompaniment_audio(
+    job_id: str, store: JobStore = Depends(get_job_store)
+) -> FileResponse:
+    job = store.get(job_id)
+
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.accompaniment_path is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Accompaniment audio not available yet: job status is {job.status.value}",
+        )
+
+    return FileResponse(job.accompaniment_path, media_type="audio/wav")
 
 
 class DrumEventResponse(BaseModel):

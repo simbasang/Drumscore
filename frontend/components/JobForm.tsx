@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { createJob, getAnalysis, getJob, type Analysis, type Job, type JobStatus } from "@/lib/api/jobs";
-import DrumScore from "@/components/DrumScore";
+import Player from "@/components/Player";
 
 interface JobFormProps {
   apiBaseUrl: string;
@@ -133,7 +133,14 @@ export default function JobForm({ apiBaseUrl }: JobFormProps) {
           Job created: {job.id} — status: {statusLabel(job)}
         </p>
       )}
-      {analysis && <DrumScore events={analysis.events} />}
+      {job && analysis && (
+        <Player
+          apiBaseUrl={apiBaseUrl}
+          jobId={job.id}
+          events={analysis.events}
+          tempoBpm={analysis.tempo_bpm}
+        />
+      )}
     </div>
   );
 }

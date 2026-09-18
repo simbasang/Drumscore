@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { createJob, getJob, type Job, type JobStatus } from "@/lib/api/jobs";
+import { createJob, getAnalysis, getJob, type Analysis, type Job, type JobStatus } from "@/lib/api/jobs";
+import DrumScore from "@/components/DrumScore";
 
 interface JobFormProps {
   apiBaseUrl: string;
@@ -40,6 +41,7 @@ export default function JobForm({ apiBaseUrl }: JobFormProps) {
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const pollHandle = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -57,6 +59,18 @@ export default function JobForm({ apiBaseUrl }: JobFormProps) {
     }
   }
 
+  async function fetchAnalysisIfReady(jobId: string, status: JobStatus) {
+    if (status !== "tempo_mapped") {
+      return;
+    }
+    try {
+      const result = await getAnalysis(apiBaseUrl, jobId);
+      setAnalysis(result);
+    } catch {
+      // Analysis is a bonus once the job is done; a failure here doesn't change job status.
+    }
+  }
+
   function startPolling(jobId: string) {
     stopPolling();
     pollHandle.current = setInterval(async () => {
@@ -66,6 +80,7 @@ export default function JobForm({ apiBaseUrl }: JobFormProps) {
         if (TERMINAL_STATUSES.includes(updated.status)) {
           stopPolling();
         }
+        await fetchAnalysisIfReady(jobId, updated.status);
       } catch {
         stopPolling();
       }
@@ -86,9 +101,11 @@ export default function JobForm({ apiBaseUrl }: JobFormProps) {
       const createdJob = await createJob(apiBaseUrl, trimmedUrl);
       setJob(createdJob);
       setError(null);
+      setAnalysis(null);
       if (!TERMINAL_STATUSES.includes(createdJob.status)) {
         startPolling(createdJob.id);
       }
+      await fetchAnalysisIfReady(createdJob.id, createdJob.status);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create job.");
       setJob(null);
@@ -116,6 +133,7 @@ export default function JobForm({ apiBaseUrl }: JobFormProps) {
           Job created: {job.id} — status: {statusLabel(job)}
         </p>
       )}
+      {analysis && <DrumScore events={analysis.events} />}
     </div>
   );
 }

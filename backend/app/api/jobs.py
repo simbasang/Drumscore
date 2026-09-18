@@ -12,7 +12,7 @@ from app.librosa_tempo_estimator import LibrosaTempoEstimator
 from app.media_source import InvalidSourceUrlError, MediaSourceValidator
 from app.stem_separation import StemSeparator
 from app.tempo_estimation import TempoEstimator
-from app.transcription import DrumTranscriber
+from app.transcription import DrumEvent, DrumInstrument, DrumTranscriber
 from app.youtube_audio_extractor import YtDlpAudioExtractor
 from app.youtube_source import YouTubeSourceValidator
 
@@ -125,3 +125,47 @@ def get_job(job_id: str, store: JobStore = Depends(get_job_store)) -> JobRespons
         raise HTTPException(status_code=404, detail="Job not found")
 
     return JobResponse.from_job(job)
+
+
+class DrumEventResponse(BaseModel):
+    id: str
+    time: float
+    instrument: DrumInstrument
+    measure: int | None = None
+    beat: int | None = None
+    subdivision: int | None = None
+
+    @classmethod
+    def from_event(cls, event: DrumEvent) -> "DrumEventResponse":
+        return cls(
+            id=event.id,
+            time=event.time,
+            instrument=event.instrument,
+            measure=event.measure,
+            beat=event.beat,
+            subdivision=event.subdivision,
+        )
+
+
+class AnalysisResponse(BaseModel):
+    tempo_bpm: float
+    events: list[DrumEventResponse]
+
+
+@router.get("/{job_id}/analysis", response_model=AnalysisResponse)
+def get_job_analysis(job_id: str, store: JobStore = Depends(get_job_store)) -> AnalysisResponse:
+    job = store.get(job_id)
+
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.events is None or job.tempo_bpm is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Analysis not available yet: job status is {job.status.value}",
+        )
+
+    return AnalysisResponse(
+        tempo_bpm=job.tempo_bpm,
+        events=[DrumEventResponse.from_event(event) for event in job.events],
+    )

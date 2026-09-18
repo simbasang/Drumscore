@@ -563,14 +563,9 @@ Minimum coverage areas:
 - drum-volume mixer state
 - API job lifecycle
 
-Additional hardening carried over from MVP-004.5 (deferred, not forgotten):
-
-- Disk cleanup policy for job files under `backend/data/jobs/` — nothing currently
-  removes old jobs' downloaded audio/stems, so disk usage grows unbounded.
-- Concurrency/resource limits for simultaneous heavy jobs — each job spawns its
-  own Demucs subprocess with no cap on how many can run at once.
-- Retry functionality for failed pipeline steps (not previously in this plan) —
-  a job that fails currently has no way to be re-run without submitting a new URL.
+Also review and address everything logged in `TECHNICAL_DEBT.md` — items
+found along the way during earlier MVP tasks that were deliberately
+deferred rather than fixed on the spot.
 
 ---
 

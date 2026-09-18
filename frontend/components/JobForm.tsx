@@ -10,7 +10,7 @@ interface JobFormProps {
 
 const POLL_INTERVAL_MS = 2000;
 
-const TERMINAL_STATUSES: JobStatus[] = ["transcribed", "failed"];
+const TERMINAL_STATUSES: JobStatus[] = ["tempo_mapped", "failed"];
 
 const STATUS_LABELS: Record<JobStatus, string> = {
   queued: "queued",
@@ -19,13 +19,19 @@ const STATUS_LABELS: Record<JobStatus, string> = {
   separating_stems: "Separating drum stems...",
   stems_separated: "Drums and accompaniment separated, starting transcription...",
   transcribing: "Transcribing drum hits...",
-  transcribed: "Done.",
+  transcribed: "starting tempo estimation...",
+  mapping_tempo: "Estimating tempo...",
+  tempo_mapped: "Done.",
   failed: "Failed.",
 };
 
 function statusLabel(job: Job): string {
+  if (job.status === "tempo_mapped") {
+    const bpm = job.tempo_bpm != null ? Math.round(job.tempo_bpm) : "?";
+    return `Done — ${job.event_count ?? 0} drum hits detected at ${bpm} BPM.`;
+  }
   if (job.status === "transcribed") {
-    return `Done — ${job.event_count ?? 0} drum hits detected.`;
+    return `Done — ${job.event_count ?? 0} drum hits detected, ${STATUS_LABELS.transcribed}`;
   }
   return STATUS_LABELS[job.status];
 }

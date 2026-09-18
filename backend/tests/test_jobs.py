@@ -79,6 +79,16 @@ def test_update_sets_events_on_transcription_success():
     assert updated.events == events
 
 
+def test_update_sets_tempo_on_mapping_success():
+    store = JobStore()
+    job = store.create(url="https://youtu.be/dQw4w9WgXcQ")
+
+    updated = store.update(job.id, status=JobStatus.TEMPO_MAPPED, tempo_bpm=128.5)
+
+    assert updated.status == JobStatus.TEMPO_MAPPED
+    assert updated.tempo_bpm == 128.5
+
+
 def test_update_sets_stem_paths_on_separation_success():
     store = JobStore()
     job = store.create(url="https://youtu.be/dQw4w9WgXcQ")

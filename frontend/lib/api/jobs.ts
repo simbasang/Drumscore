@@ -6,6 +6,8 @@ export type JobStatus =
   | "stems_separated"
   | "transcribing"
   | "transcribed"
+  | "mapping_tempo"
+  | "tempo_mapped"
   | "failed";
 
 export interface Job {
@@ -16,6 +18,7 @@ export interface Job {
   drums_path?: string | null;
   accompaniment_path?: string | null;
   event_count?: number | null;
+  tempo_bpm?: number | null;
   error?: string | null;
 }
 

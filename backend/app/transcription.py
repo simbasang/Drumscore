@@ -27,6 +27,9 @@ class DrumEvent:
     instrument: DrumInstrument
     velocity: float | None = None
     confidence: float | None = None
+    measure: int | None = None
+    beat: int | None = None
+    subdivision: int | None = None
 
 
 class DrumTranscriber(Protocol):

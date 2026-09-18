@@ -15,6 +15,8 @@ class JobStatus(str, Enum):
     STEMS_SEPARATED = "stems_separated"
     TRANSCRIBING = "transcribing"
     TRANSCRIBED = "transcribed"
+    MAPPING_TEMPO = "mapping_tempo"
+    TEMPO_MAPPED = "tempo_mapped"
     FAILED = "failed"
 
 
@@ -28,6 +30,7 @@ class Job:
     drums_path: str | None = None
     accompaniment_path: str | None = None
     events: list[DrumEvent] | None = None
+    tempo_bpm: float | None = None
     error: str | None = None
 
 

@@ -1,9 +1,14 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 
-import { createJob, getJob } from "@/lib/api/jobs";
+import { createJob, getAnalysis, getJob } from "@/lib/api/jobs";
 import JobForm from "../JobForm";
 
 jest.mock("@/lib/api/jobs");
+jest.mock("@/components/DrumScore", () => {
+  return function MockDrumScore({ events }: { events: unknown[] }) {
+    return <div data-testid="drum-score-mock" data-event-count={events.length} />;
+  };
+});
 
 function fillAndSubmit(url: string) {
   fireEvent.change(screen.getByLabelText(/youtube url/i), { target: { value: url } });
@@ -120,6 +125,39 @@ describe("JobForm", () => {
         jest.advanceTimersByTime(4000);
       });
       expect((getJob as jest.Mock).mock.calls.length).toBe(callsAfterDone);
+    });
+
+    it("should fetch and render the drum score once the job reaches tempo_mapped", async () => {
+      (createJob as jest.Mock).mockResolvedValue({
+        id: "job-1",
+        url: "https://youtu.be/dQw4w9WgXcQ",
+        status: "queued",
+      });
+      (getJob as jest.Mock).mockResolvedValue({
+        id: "job-1",
+        status: "tempo_mapped",
+        event_count: 2,
+        tempo_bpm: 120,
+      });
+      (getAnalysis as jest.Mock).mockResolvedValue({
+        tempo_bpm: 120,
+        events: [
+          { id: "e1", time: 0, instrument: "kick", measure: 1, beat: 1, subdivision: 0 },
+          { id: "e2", time: 0.5, instrument: "snare", measure: 1, beat: 2, subdivision: 0 },
+        ],
+      });
+
+      render(<JobForm apiBaseUrl="http://localhost:8000" />);
+      fillAndSubmit("https://youtu.be/dQw4w9WgXcQ");
+      await act(async () => {});
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+
+      expect(getAnalysis).toHaveBeenCalledWith("http://localhost:8000", "job-1");
+      const score = await screen.findByTestId("drum-score-mock");
+      expect(score).toHaveAttribute("data-event-count", "2");
     });
 
     it("should show the backend's error and stop polling once the job fails", async () => {

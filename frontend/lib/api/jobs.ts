@@ -22,7 +22,32 @@ export interface Job {
   error?: string | null;
 }
 
-async function parseJobResponse(response: Response): Promise<Job> {
+export type DrumInstrument =
+  | "kick"
+  | "snare"
+  | "hihat_closed"
+  | "hihat_open"
+  | "crash"
+  | "ride"
+  | "tom_low"
+  | "tom_mid"
+  | "tom_high";
+
+export interface AnalysisEvent {
+  id: string;
+  time: number;
+  instrument: DrumInstrument;
+  measure: number | null;
+  beat: number | null;
+  subdivision: number | null;
+}
+
+export interface Analysis {
+  tempo_bpm: number;
+  events: AnalysisEvent[];
+}
+
+async function parseResponse<T>(response: Response): Promise<T> {
   const body = await response.json();
 
   if (!response.ok) {
@@ -39,11 +64,17 @@ export async function createJob(baseUrl: string, url: string): Promise<Job> {
     body: JSON.stringify({ url }),
   });
 
-  return parseJobResponse(response);
+  return parseResponse<Job>(response);
 }
 
 export async function getJob(baseUrl: string, id: string): Promise<Job> {
   const response = await fetch(`${baseUrl}/api/jobs/${id}`);
 
-  return parseJobResponse(response);
+  return parseResponse<Job>(response);
+}
+
+export async function getAnalysis(baseUrl: string, id: string): Promise<Analysis> {
+  const response = await fetch(`${baseUrl}/api/jobs/${id}/analysis`);
+
+  return parseResponse<Analysis>(response);
 }

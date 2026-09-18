@@ -172,6 +172,37 @@ def test_create_job_reports_tempo_mapping_failure_as_job_error():
     assert body["error"] == "could not estimate tempo"
 
 
+def test_get_analysis_returns_tempo_and_events_when_job_is_tempo_mapped():
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}/analysis")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tempo_bpm"] == 128.0
+    assert len(body["events"]) == 2
+    assert body["events"][0]["instrument"] == "kick"
+    assert body["events"][0]["time"] == 0.5
+
+
+def test_get_analysis_returns_409_when_job_not_yet_tempo_mapped():
+    app.dependency_overrides[get_transcriber] = lambda: FailingTranscriber()
+
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}/analysis")
+
+    assert response.status_code == 409
+
+
+def test_get_analysis_returns_404_for_unknown_job():
+    response = client.get("/api/jobs/does-not-exist/analysis")
+
+    assert response.status_code == 404
+
+
 def test_get_job_returns_previously_created_job():
     create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
     job_id = create_response.json()["id"]

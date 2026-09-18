@@ -1,4 +1,9 @@
-import { computeSlotTimeSeconds, interpolatePlayheadX, type TimelinePoint } from "../timeline";
+import {
+  computeAutoScrollLeft,
+  computeSlotTimeSeconds,
+  interpolatePlayheadX,
+  type TimelinePoint,
+} from "../timeline";
 
 describe("computeSlotTimeSeconds", () => {
   it.each([
@@ -49,5 +54,28 @@ describe("interpolatePlayheadX", () => {
     ];
     const result = interpolatePlayheadX(rowChangePoints, 0.5);
     expect(result?.row).toBe(0);
+  });
+});
+
+describe("computeAutoScrollLeft", () => {
+  it("should leave scrollLeft unchanged when the target is already comfortably visible", () => {
+    expect(computeAutoScrollLeft(0, 400, 100)).toBe(0);
+  });
+
+  it("should scroll left when the target is near or past the left edge", () => {
+    expect(computeAutoScrollLeft(0, 400, 20)).toBe(0);
+    expect(computeAutoScrollLeft(200, 400, 210)).toBe(170);
+  });
+
+  it("should never scroll to a negative position", () => {
+    expect(computeAutoScrollLeft(0, 400, 5)).toBe(0);
+  });
+
+  it("should scroll right when the target is near or past the right edge", () => {
+    expect(computeAutoScrollLeft(0, 400, 500)).toBe(140);
+  });
+
+  it("should account for the current scroll position, not just the raw viewport", () => {
+    expect(computeAutoScrollLeft(300, 400, 750)).toBe(390);
   });
 });

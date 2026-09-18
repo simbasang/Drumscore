@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 import soundfile as sf
@@ -28,6 +30,64 @@ def test_estimate_returns_bpm_close_to_known_click_track_tempo(tmp_path):
     bpm = LibrosaTempoEstimator().estimate(audio_path)
 
     assert 110.0 <= bpm <= 130.0
+
+
+def test_estimate_corrects_an_octave_error_when_beat_tracker_halves_the_true_tempo(tmp_path):
+    audio_path = tmp_path / "clicks.wav"
+    _write_click_track(audio_path, bpm=120.0)
+    true_period = 60.0 / 120.0
+    onset_times = np.arange(0, 8.0, true_period)
+
+    with (
+        patch("app.librosa_tempo_estimator.librosa.beat.beat_track", return_value=(60.0, None)),
+        patch("app.librosa_tempo_estimator.librosa.onset.onset_detect", return_value=onset_times),
+    ):
+        bpm = LibrosaTempoEstimator().estimate(audio_path)
+
+    assert bpm == pytest.approx(120.0, abs=1.0)
+
+
+def test_estimate_corrects_an_octave_error_when_beat_tracker_doubles_the_true_tempo(tmp_path):
+    audio_path = tmp_path / "clicks.wav"
+    _write_click_track(audio_path, bpm=80.0)
+    true_period = 60.0 / 80.0
+    onset_times = np.arange(0, 8.0, true_period)
+
+    with (
+        patch("app.librosa_tempo_estimator.librosa.beat.beat_track", return_value=(160.0, None)),
+        patch("app.librosa_tempo_estimator.librosa.onset.onset_detect", return_value=onset_times),
+    ):
+        bpm = LibrosaTempoEstimator().estimate(audio_path)
+
+    assert bpm == pytest.approx(80.0, abs=1.0)
+
+
+def test_estimate_keeps_tempo_unchanged_when_it_already_fits_the_onset_grid(tmp_path):
+    audio_path = tmp_path / "clicks.wav"
+    _write_click_track(audio_path, bpm=120.0)
+    true_period = 60.0 / 120.0
+    onset_times = np.arange(0, 8.0, true_period)
+
+    with (
+        patch("app.librosa_tempo_estimator.librosa.beat.beat_track", return_value=(120.0, None)),
+        patch("app.librosa_tempo_estimator.librosa.onset.onset_detect", return_value=onset_times),
+    ):
+        bpm = LibrosaTempoEstimator().estimate(audio_path)
+
+    assert bpm == pytest.approx(120.0, abs=1.0)
+
+
+def test_estimate_leaves_tempo_unchanged_when_no_onsets_are_detected(tmp_path):
+    audio_path = tmp_path / "clicks.wav"
+    _write_click_track(audio_path, bpm=120.0)
+
+    with (
+        patch("app.librosa_tempo_estimator.librosa.beat.beat_track", return_value=(120.0, None)),
+        patch("app.librosa_tempo_estimator.librosa.onset.onset_detect", return_value=np.array([])),
+    ):
+        bpm = LibrosaTempoEstimator().estimate(audio_path)
+
+    assert bpm == pytest.approx(120.0)
 
 
 def test_estimate_raises_on_invalid_audio_file(tmp_path):

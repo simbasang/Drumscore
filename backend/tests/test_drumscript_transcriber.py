@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.drumscript_transcriber import _RUNNER_SCRIPT, DrumScriptTranscriber
+from app.drumscript_transcriber import _RUNNER_SCRIPT, DrumScriptTranscriber, _runner_python
 from app.transcription import DrumInstrument, TranscriptionError
 
 
@@ -114,6 +114,22 @@ def test_transcribe_raises_on_timeout(tmp_path):
 
         with pytest.raises(TranscriptionError, match="timed out"):
             DrumScriptTranscriber().transcribe(tmp_path / "drums.wav")
+
+
+def test_runner_python_uses_unix_venv_layout_on_non_windows(monkeypatch):
+    monkeypatch.setattr("app.drumscript_transcriber.sys.platform", "linux")
+
+    result = _runner_python()
+
+    assert result.parts[-3:] == (".venv", "bin", "python")
+
+
+def test_runner_python_uses_windows_venv_layout_on_windows(monkeypatch):
+    monkeypatch.setattr("app.drumscript_transcriber.sys.platform", "win32")
+
+    result = _runner_python()
+
+    assert result.parts[-3:] == (".venv", "Scripts", "python.exe")
 
 
 def test_transcribe_raises_when_runner_environment_missing(tmp_path):

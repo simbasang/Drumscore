@@ -31,6 +31,7 @@ def test_parse_extracts_video_id_from_supported_url_formats(url):
         "not a url",
         "https://www.youtube.com/watch?v=short",
         "ftp://youtu.be/dQw4w9WgXcQ",
+        "https://www.youtube.com/channel/UCabcdefghijk",
         "",
     ],
 )

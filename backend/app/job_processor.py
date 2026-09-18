@@ -1,4 +1,6 @@
+import threading
 from pathlib import Path
+from typing import Callable
 
 from app.audio_extraction import AudioExtractionError, AudioExtractor
 from app.beat_mapping import quantize_events
@@ -7,6 +9,21 @@ from app.media_source import ParsedSource
 from app.stem_separation import StemSeparationError, StemSeparator
 from app.tempo_estimation import TempoEstimationError, TempoEstimator
 from app.transcription import DrumEvent, DrumTranscriber, TranscriptionError
+
+DEFAULT_MAX_CONCURRENT_PIPELINE_JOBS = 2
+
+
+class PipelineConcurrencyLimiter:
+    """Caps how many pipeline runs execute at once. A job waiting for a
+    free slot stays in whatever status it already has (queued, for a new
+    job) until the limiter lets it through."""
+
+    def __init__(self, max_concurrent: int = DEFAULT_MAX_CONCURRENT_PIPELINE_JOBS) -> None:
+        self._semaphore = threading.BoundedSemaphore(max_concurrent)
+
+    def run(self, func: Callable[..., None], *args: object, **kwargs: object) -> None:
+        with self._semaphore:
+            func(*args, **kwargs)
 
 
 def run_audio_extraction(
@@ -111,20 +128,28 @@ def run_pipeline(
     tempo_estimator: TempoEstimator,
     storage_dir: Path,
 ) -> None:
+    """Runs each pipeline step in order, skipping any step whose output is
+    already present on the job. This lets a retry resume from wherever a
+    previous run left off instead of starting over from scratch."""
     job_dir = storage_dir / job_id
-    audio_path = run_audio_extraction(job_id, source, store, extractor, storage_dir)
+    job = store.get(job_id)
 
+    audio_path = Path(job.audio_path) if job.audio_path else None
     if audio_path is None:
-        return
+        audio_path = run_audio_extraction(job_id, source, store, extractor, storage_dir)
+        if audio_path is None:
+            return
 
-    drums_path = run_stem_separation(job_id, audio_path, store, separator, job_dir)
-
+    drums_path = Path(job.drums_path) if job.drums_path else None
     if drums_path is None:
-        return
+        drums_path = run_stem_separation(job_id, audio_path, store, separator, job_dir)
+        if drums_path is None:
+            return
 
-    events = run_transcription(job_id, drums_path, store, transcriber)
-
+    events = job.events if job.events else None
     if events is None:
-        return
+        events = run_transcription(job_id, drums_path, store, transcriber)
+        if events is None:
+            return
 
     run_tempo_mapping(job_id, drums_path, events, store, tempo_estimator)

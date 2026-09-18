@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -246,6 +248,61 @@ def test_get_drums_audio_returns_409_when_not_ready_yet():
     response = client.get(f"/api/jobs/{job_id}/audio/drums")
 
     assert response.status_code == 409
+
+
+def test_retry_job_reruns_the_pipeline_from_the_failed_step():
+    app.dependency_overrides[get_stem_separator] = lambda: FailingStemSeparator()
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+    assert client.get(f"/api/jobs/{job_id}").json()["status"] == "failed"
+
+    app.dependency_overrides[get_stem_separator] = lambda: FakeStemSeparator()
+    retry_response = client.post(f"/api/jobs/{job_id}/retry")
+
+    assert retry_response.status_code == 202
+    final = client.get(f"/api/jobs/{job_id}").json()
+    assert final["status"] == "tempo_mapped"
+    assert final["error"] is None
+
+
+def test_retry_job_returns_404_for_unknown_job():
+    response = client.post("/api/jobs/does-not-exist/retry")
+
+    assert response.status_code == 404
+
+
+def test_retry_job_returns_409_when_job_has_not_failed():
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+
+    response = client.post(f"/api/jobs/{job_id}/retry")
+
+    assert response.status_code == 409
+
+
+def test_get_accompaniment_audio_returns_409_when_not_ready_yet():
+    app.dependency_overrides[get_audio_extractor] = lambda: FailingAudioExtractor()
+
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}/audio/accompaniment")
+
+    assert response.status_code == 409
+
+
+def test_create_job_cleans_up_stale_jobs_and_their_files(isolated_dependencies):
+    store = isolated_dependencies
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    old_job_id = create_response.json()["id"]
+    store.update(
+        old_job_id,
+        created_at=datetime.now(UTC) - timedelta(hours=48),
+    )
+
+    client.post("/api/jobs", json={"url": "https://youtu.be/aaaaaaaaaaa"})
+
+    assert client.get(f"/api/jobs/{old_job_id}").status_code == 404
 
 
 def test_get_job_returns_previously_created_job():

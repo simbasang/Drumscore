@@ -28,6 +28,15 @@ describe("createJob", () => {
       "'x' is not a supported YouTube URL",
     );
   });
+
+  it("should throw a generic error when the backend response has no detail", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      json: () => Promise.resolve({}),
+    } as Response);
+
+    await expect(createJob("http://localhost:8000", "x")).rejects.toThrow("Request failed");
+  });
 });
 
 describe("getJob", () => {

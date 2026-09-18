@@ -2,6 +2,7 @@ import type { AudioBufferLike, AudioContextLike } from "./SyncedPlayer";
 
 export interface DecodableAudioContext extends AudioContextLike {
   decodeAudioData(data: ArrayBuffer): Promise<AudioBufferLike>;
+  close(): Promise<void>;
 }
 
 export async function loadAudioBuffer(

@@ -103,3 +103,34 @@ def test_update_sets_stem_paths_on_separation_success():
     assert updated.status == JobStatus.STEMS_SEPARATED
     assert updated.drums_path == "/data/drums.wav"
     assert updated.accompaniment_path == "/data/no_drums.wav"
+
+
+def test_list_all_returns_every_created_job():
+    store = JobStore()
+    first = store.create(url="https://youtu.be/aaaaaaaaaaa")
+    second = store.create(url="https://youtu.be/bbbbbbbbbbb")
+
+    result = store.list_all()
+
+    assert {job.id for job in result} == {first.id, second.id}
+
+
+def test_list_all_returns_empty_list_when_no_jobs_exist():
+    store = JobStore()
+
+    assert store.list_all() == []
+
+
+def test_delete_removes_a_job():
+    store = JobStore()
+    job = store.create(url="https://youtu.be/dQw4w9WgXcQ")
+
+    store.delete(job.id)
+
+    assert store.get(job.id) is None
+
+
+def test_delete_is_a_noop_for_an_unknown_job():
+    store = JobStore()
+
+    store.delete("does-not-exist")

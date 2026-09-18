@@ -4,13 +4,13 @@ import { buildStaveNote } from "../buildStaveNote";
 
 describe("buildStaveNote", () => {
   it("should force an upward stem for a kick-only note", () => {
-    const note = buildStaveNote({ type: "note", keys: ["f/4"], articulations: [], duration: "16" });
+    const note = buildStaveNote({ type: "note", keys: ["f/4"], articulations: [], duration: "16", startSixteenth: 0 });
 
     expect(note.getStemDirection()).toBe(Stem.UP);
   });
 
   it("should force an upward stem for a snare-only note", () => {
-    const note = buildStaveNote({ type: "note", keys: ["c/5"], articulations: [], duration: "16" });
+    const note = buildStaveNote({ type: "note", keys: ["c/5"], articulations: [], duration: "16", startSixteenth: 0 });
 
     expect(note.getStemDirection()).toBe(Stem.UP);
   });
@@ -21,6 +21,7 @@ describe("buildStaveNote", () => {
       keys: ["f/4", "c/5", "g/5/x2"],
       articulations: [],
       duration: "16",
+    startSixteenth: 0,
     });
 
     expect(note.getStemDirection()).toBe(Stem.UP);
@@ -28,7 +29,7 @@ describe("buildStaveNote", () => {
   });
 
   it("should build a rest for a rest slot", () => {
-    const note = buildStaveNote({ type: "rest", duration: "16" });
+    const note = buildStaveNote({ type: "rest", duration: "16", startSixteenth: 0 });
 
     expect(note.isRest()).toBe(true);
   });
@@ -39,6 +40,7 @@ describe("buildStaveNote", () => {
       keys: ["g/5/x2"],
       articulations: ["ah"],
       duration: "16",
+    startSixteenth: 0,
     });
 
     expect(note.getModifiersByType("Articulation")).toHaveLength(1);

@@ -10,6 +10,7 @@ interface JobFormProps {
 }
 
 const POLL_INTERVAL_MS = 2000;
+const MAX_CONSECUTIVE_POLL_FAILURES = 3;
 
 const TERMINAL_STATUSES: JobStatus[] = ["tempo_mapped", "failed"];
 
@@ -42,7 +43,9 @@ export default function JobForm({ apiBaseUrl }: JobFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [connectionIssue, setConnectionIssue] = useState(false);
   const pollHandle = useRef<ReturnType<typeof setInterval> | null>(null);
+  const consecutiveFailures = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -73,16 +76,25 @@ export default function JobForm({ apiBaseUrl }: JobFormProps) {
 
   function startPolling(jobId: string) {
     stopPolling();
+    consecutiveFailures.current = 0;
+    setConnectionIssue(false);
     pollHandle.current = setInterval(async () => {
       try {
         const updated = await getJob(apiBaseUrl, jobId);
+        consecutiveFailures.current = 0;
+        setConnectionIssue(false);
         setJob(updated);
         if (TERMINAL_STATUSES.includes(updated.status)) {
           stopPolling();
         }
         await fetchAnalysisIfReady(jobId, updated.status);
       } catch {
-        stopPolling();
+        consecutiveFailures.current += 1;
+        if (consecutiveFailures.current >= MAX_CONSECUTIVE_POLL_FAILURES) {
+          stopPolling();
+        } else {
+          setConnectionIssue(true);
+        }
       }
     }, POLL_INTERVAL_MS);
   }
@@ -125,6 +137,7 @@ export default function JobForm({ apiBaseUrl }: JobFormProps) {
         <button type="submit">Generate drum score</button>
       </form>
       {error && <p role="alert">{error}</p>}
+      {connectionIssue && <p>Lost connection, retrying...</p>}
       {job && job.status === "failed" && (
         <p role="alert">{job.error ?? STATUS_LABELS.failed}</p>
       )}

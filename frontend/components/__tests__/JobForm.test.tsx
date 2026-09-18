@@ -188,5 +188,56 @@ describe("JobForm", () => {
       });
       expect((getJob as jest.Mock).mock.calls.length).toBe(callsAfterFailure);
     });
+
+    it("should keep polling and show a reconnecting message after a single transient failure", async () => {
+      (createJob as jest.Mock).mockResolvedValue({
+        id: "job-1",
+        url: "https://youtu.be/dQw4w9WgXcQ",
+        status: "queued",
+      });
+      (getJob as jest.Mock)
+        .mockRejectedValueOnce(new Error("network blip"))
+        .mockResolvedValueOnce({ id: "job-1", status: "separating_stems" });
+
+      render(<JobForm apiBaseUrl="http://localhost:8000" />);
+      fillAndSubmit("https://youtu.be/dQw4w9WgXcQ");
+      await act(async () => {});
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(screen.getByText(/lost connection, retrying/i)).toBeInTheDocument();
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(screen.queryByText(/lost connection, retrying/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/separating drum stems/i)).toBeInTheDocument();
+    });
+
+    it("should stop polling after several consecutive failures", async () => {
+      (createJob as jest.Mock).mockResolvedValue({
+        id: "job-1",
+        url: "https://youtu.be/dQw4w9WgXcQ",
+        status: "queued",
+      });
+      (getJob as jest.Mock).mockRejectedValue(new Error("network down"));
+
+      render(<JobForm apiBaseUrl="http://localhost:8000" />);
+      fillAndSubmit("https://youtu.be/dQw4w9WgXcQ");
+      await act(async () => {});
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+        jest.advanceTimersByTime(2000);
+        jest.advanceTimersByTime(2000);
+      });
+
+      const callsAfterStop = (getJob as jest.Mock).mock.calls.length;
+      await act(async () => {
+        jest.advanceTimersByTime(4000);
+      });
+      expect((getJob as jest.Mock).mock.calls.length).toBe(callsAfterStop);
+    });
   });
 });

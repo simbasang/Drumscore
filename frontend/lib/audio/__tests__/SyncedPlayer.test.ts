@@ -134,6 +134,50 @@ describe("SyncedPlayer", () => {
     expect(masterGain.gain.value).toBe(1);
   });
 
+  it("should auto-pause and clamp the reported time once playback reaches the end of the track", () => {
+    const player = new SyncedPlayer(context, makeBuffer(10), makeBuffer(10));
+    context.currentTime = 0;
+    player.play();
+
+    context.currentTime = 15;
+
+    expect(player.getCurrentTime()).toBe(10);
+    expect(player.isPlaying).toBe(false);
+  });
+
+  it("should not start playback past the track duration even after it previously ended", () => {
+    const player = new SyncedPlayer(context, makeBuffer(10), makeBuffer(10));
+    context.currentTime = 0;
+    player.play();
+    context.currentTime = 15;
+    player.getCurrentTime();
+
+    context.createBufferSource.mockClear();
+    player.play();
+
+    const sources = context.createBufferSource.mock.results.map((r) => r.value as FakeBufferSource);
+    sources.forEach((source) => expect(source.start).toHaveBeenCalledWith(0, 10));
+  });
+
+  it("should do nothing when play is called while already playing", () => {
+    const player = new SyncedPlayer(context, makeBuffer(10), makeBuffer(10));
+    player.play();
+    context.createBufferSource.mockClear();
+
+    player.play();
+
+    expect(context.createBufferSource).not.toHaveBeenCalled();
+  });
+
+  it("should do nothing when pause is called while already paused", () => {
+    const player = new SyncedPlayer(context, makeBuffer(10), makeBuffer(10));
+
+    player.pause();
+
+    expect(context.createBufferSource).not.toHaveBeenCalled();
+    expect(player.getCurrentTime()).toBe(0);
+  });
+
   it("should not affect playback position or sync when changing drums volume", () => {
     const player = new SyncedPlayer(context, makeBuffer(10), makeBuffer(10));
     context.currentTime = 0;

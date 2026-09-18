@@ -4,20 +4,25 @@ import { useEffect, useRef } from "react";
 import { Beam, Formatter, Fraction, Renderer, Stave, Voice } from "vexflow";
 
 import type { AnalysisEvent } from "@/lib/api/jobs";
-import { buildMeasures } from "@/lib/notation/buildScore";
+import { BEATS_PER_MEASURE, SUBDIVISIONS_PER_BEAT, buildMeasures } from "@/lib/notation/buildScore";
 import { buildStaveNote } from "@/lib/notation/buildStaveNote";
+import { computeSlotTimeSeconds, interpolatePlayheadX, type TimelinePoint } from "@/lib/notation/timeline";
 
 interface DrumScoreProps {
   events: AnalysisEvent[];
+  tempoBpm: number;
+  currentTime?: number;
 }
 
 const MEASURES_PER_ROW = 4;
 const MEASURE_WIDTH = 200;
 const ROW_HEIGHT = 120;
 const STAVE_X_START = 10;
+const PLAYHEAD_ID = "drum-score-playhead";
 
-export default function DrumScore({ events }: DrumScoreProps) {
+export default function DrumScore({ events, tempoBpm, currentTime }: DrumScoreProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const timelineRef = useRef<TimelinePoint[]>([]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -26,6 +31,7 @@ export default function DrumScore({ events }: DrumScoreProps) {
     }
 
     container.innerHTML = "";
+    timelineRef.current = [];
 
     const measures = buildMeasures(events);
     if (measures.length === 0) {
@@ -69,8 +75,56 @@ export default function DrumScore({ events }: DrumScoreProps) {
         groups: [new Fraction(1, 4)],
       });
       beams.forEach((beam) => beam.setContext(context).draw());
+
+      const measureNumber = index + 1;
+      notes.forEach((note, slotIndex) => {
+        const beat = Math.floor(slotIndex / SUBDIVISIONS_PER_BEAT) + 1;
+        const subdivision = slotIndex % SUBDIVISIONS_PER_BEAT;
+        const time = computeSlotTimeSeconds(
+          measureNumber,
+          beat,
+          subdivision,
+          tempoBpm,
+          BEATS_PER_MEASURE,
+          SUBDIVISIONS_PER_BEAT,
+        );
+        timelineRef.current.push({ time, x: note.getAbsoluteX(), row });
+      });
     });
-  }, [events]);
+  }, [events, tempoBpm]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || currentTime == null) {
+      return;
+    }
+
+    const svg = container.querySelector("svg");
+    if (!svg) {
+      return;
+    }
+
+    const point = interpolatePlayheadX(timelineRef.current, currentTime);
+    if (!point) {
+      return;
+    }
+
+    const yTop = 15 + point.row * ROW_HEIGHT;
+    const yBottom = yTop + ROW_HEIGHT - 25;
+
+    let line = svg.querySelector(`#${PLAYHEAD_ID}`);
+    if (!line) {
+      line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("id", PLAYHEAD_ID);
+      line.setAttribute("stroke", "#e53e3e");
+      line.setAttribute("stroke-width", "2");
+      svg.appendChild(line);
+    }
+    line.setAttribute("x1", String(point.x));
+    line.setAttribute("x2", String(point.x));
+    line.setAttribute("y1", String(yTop));
+    line.setAttribute("y2", String(yBottom));
+  }, [currentTime]);
 
   return (
     <div

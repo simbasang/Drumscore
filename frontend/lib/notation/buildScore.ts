@@ -17,8 +17,8 @@ export type SlotSpec = NoteSpec | RestSpec;
 
 export type MeasureSpec = SlotSpec[];
 
-const BEATS_PER_MEASURE = 4;
-const SUBDIVISIONS_PER_BEAT = 4;
+export const BEATS_PER_MEASURE = 4;
+export const SUBDIVISIONS_PER_BEAT = 4;
 const SLOT_DURATION = "16";
 
 export function buildMeasures(events: AnalysisEvent[]): MeasureSpec[] {

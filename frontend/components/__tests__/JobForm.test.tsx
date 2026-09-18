@@ -62,7 +62,7 @@ describe("JobForm", () => {
       jest.useRealTimers();
     });
 
-    it("should poll for job status until it reaches transcribed", async () => {
+    it("should poll for job status until it reaches tempo_mapped", async () => {
       (createJob as jest.Mock).mockResolvedValue({
         id: "job-1",
         url: "https://youtu.be/dQw4w9WgXcQ",
@@ -72,10 +72,13 @@ describe("JobForm", () => {
         .mockResolvedValueOnce({ id: "job-1", status: "downloading" })
         .mockResolvedValueOnce({ id: "job-1", status: "separating_stems" })
         .mockResolvedValueOnce({ id: "job-1", status: "transcribing" })
+        .mockResolvedValueOnce({ id: "job-1", status: "transcribed", event_count: 42 })
+        .mockResolvedValueOnce({ id: "job-1", status: "mapping_tempo", event_count: 42 })
         .mockResolvedValueOnce({
           id: "job-1",
-          status: "transcribed",
+          status: "tempo_mapped",
           event_count: 42,
+          tempo_bpm: 128.4,
         });
 
       render(<JobForm apiBaseUrl="http://localhost:8000" />);
@@ -101,6 +104,16 @@ describe("JobForm", () => {
         jest.advanceTimersByTime(2000);
       });
       expect(screen.getByText(/42 drum hits detected/i)).toBeInTheDocument();
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(screen.getByText(/estimating tempo/i)).toBeInTheDocument();
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(screen.getByText(/128 bpm/i)).toBeInTheDocument();
 
       const callsAfterDone = (getJob as jest.Mock).mock.calls.length;
       await act(async () => {

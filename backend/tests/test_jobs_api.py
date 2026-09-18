@@ -6,12 +6,14 @@ from app.api.jobs import (
     get_job_store,
     get_stem_separator,
     get_storage_dir,
+    get_tempo_estimator,
     get_transcriber,
 )
 from app.audio_extraction import AudioExtractionError
 from app.jobs import JobStore
 from app.main import app
 from app.stem_separation import SeparatedStems, StemSeparationError
+from app.tempo_estimation import TempoEstimationError
 from app.transcription import DrumEvent, DrumInstrument, TranscriptionError
 
 client = TestClient(app)
@@ -58,6 +60,16 @@ class FailingTranscriber:
         raise TranscriptionError("model crashed")
 
 
+class FakeTempoEstimator:
+    def estimate(self, audio_path):
+        return 128.0
+
+
+class FailingTempoEstimator:
+    def estimate(self, audio_path):
+        raise TempoEstimationError("could not estimate tempo")
+
+
 @pytest.fixture(autouse=True)
 def isolated_dependencies(tmp_path):
     store = JobStore()
@@ -65,12 +77,14 @@ def isolated_dependencies(tmp_path):
     app.dependency_overrides[get_audio_extractor] = lambda: FakeAudioExtractor()
     app.dependency_overrides[get_stem_separator] = lambda: FakeStemSeparator()
     app.dependency_overrides[get_transcriber] = lambda: FakeTranscriber()
+    app.dependency_overrides[get_tempo_estimator] = lambda: FakeTempoEstimator()
     app.dependency_overrides[get_storage_dir] = lambda: tmp_path
     yield store
     app.dependency_overrides.pop(get_job_store, None)
     app.dependency_overrides.pop(get_audio_extractor, None)
     app.dependency_overrides.pop(get_stem_separator, None)
     app.dependency_overrides.pop(get_transcriber, None)
+    app.dependency_overrides.pop(get_tempo_estimator, None)
     app.dependency_overrides.pop(get_storage_dir, None)
 
 
@@ -91,18 +105,19 @@ def test_create_job_with_invalid_url_returns_422_with_detail():
     assert "not a supported YouTube URL" in response.json()["detail"]
 
 
-def test_create_job_runs_pipeline_to_transcribed():
+def test_create_job_runs_pipeline_to_tempo_mapped():
     create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
     job_id = create_response.json()["id"]
 
     response = client.get(f"/api/jobs/{job_id}")
 
     body = response.json()
-    assert body["status"] == "transcribed"
+    assert body["status"] == "tempo_mapped"
     assert body["audio_path"].endswith("source.wav")
     assert body["drums_path"].endswith("drums.wav")
     assert body["accompaniment_path"].endswith("no_drums.wav")
     assert body["event_count"] == 2
+    assert body["tempo_bpm"] == 128.0
 
 
 def test_create_job_reports_extraction_failure_as_job_error():
@@ -142,6 +157,19 @@ def test_create_job_reports_transcription_failure_as_job_error():
     body = response.json()
     assert body["status"] == "failed"
     assert body["error"] == "model crashed"
+
+
+def test_create_job_reports_tempo_mapping_failure_as_job_error():
+    app.dependency_overrides[get_tempo_estimator] = lambda: FailingTempoEstimator()
+
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}")
+
+    body = response.json()
+    assert body["status"] == "failed"
+    assert body["error"] == "could not estimate tempo"
 
 
 def test_get_job_returns_previously_created_job():

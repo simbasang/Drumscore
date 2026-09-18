@@ -5,11 +5,13 @@ from app.job_processor import (
     run_audio_extraction,
     run_pipeline,
     run_stem_separation,
+    run_tempo_mapping,
     run_transcription,
 )
 from app.jobs import JobStatus, JobStore
 from app.media_source import ParsedSource
 from app.stem_separation import SeparatedStems, StemSeparationError
+from app.tempo_estimation import TempoEstimationError
 from app.transcription import DrumEvent, DrumInstrument, TranscriptionError
 
 
@@ -186,7 +188,58 @@ def test_run_transcription_marks_job_failed_on_unexpected_exception(tmp_path, so
     assert "out of memory" in updated.error
 
 
-def test_run_pipeline_runs_all_three_steps_on_success(tmp_path, source):
+class FakeSuccessfulTempoEstimator:
+    def estimate(self, audio_path):
+        return 120.0
+
+
+class FakeFailingTempoEstimator:
+    def estimate(self, audio_path):
+        raise TempoEstimationError("could not estimate tempo")
+
+
+class FakeCrashingTempoEstimator:
+    def estimate(self, audio_path):
+        raise RuntimeError("division by zero")
+
+
+def test_run_tempo_mapping_marks_job_tempo_mapped_on_success(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+    events = [DrumEvent(id="e1", time=0.5, instrument=DrumInstrument.KICK)]
+
+    run_tempo_mapping(job.id, tmp_path / "drums.wav", events, store, FakeSuccessfulTempoEstimator())
+
+    updated = store.get(job.id)
+    assert updated.status == JobStatus.TEMPO_MAPPED
+    assert updated.tempo_bpm == 120.0
+    assert updated.events[0].beat == 2
+    assert updated.events[0].time == 0.5
+
+
+def test_run_tempo_mapping_marks_job_failed_on_error(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+
+    run_tempo_mapping(job.id, tmp_path / "drums.wav", [], store, FakeFailingTempoEstimator())
+
+    updated = store.get(job.id)
+    assert updated.status == JobStatus.FAILED
+    assert updated.error == "could not estimate tempo"
+
+
+def test_run_tempo_mapping_marks_job_failed_on_unexpected_exception(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+
+    run_tempo_mapping(job.id, tmp_path / "drums.wav", [], store, FakeCrashingTempoEstimator())
+
+    updated = store.get(job.id)
+    assert updated.status == JobStatus.FAILED
+    assert "division by zero" in updated.error
+
+
+def test_run_pipeline_runs_all_four_steps_on_success(tmp_path, source):
     store = JobStore()
     job = store.create(url=source.url)
 
@@ -197,14 +250,16 @@ def test_run_pipeline_runs_all_three_steps_on_success(tmp_path, source):
         FakeSuccessfulExtractor(),
         FakeSuccessfulSeparator(),
         FakeSuccessfulTranscriber(),
+        FakeSuccessfulTempoEstimator(),
         tmp_path,
     )
 
     updated = store.get(job.id)
-    assert updated.status == JobStatus.TRANSCRIBED
+    assert updated.status == JobStatus.TEMPO_MAPPED
     assert updated.audio_path == str(tmp_path / job.id / "source.wav")
     assert updated.drums_path == str(tmp_path / job.id / "drums.wav")
-    assert updated.events == [DrumEvent(id="e1", time=1.0, instrument=DrumInstrument.KICK)]
+    assert updated.tempo_bpm == 120.0
+    assert updated.events[0].beat is not None
 
 
 def test_run_pipeline_stops_before_separation_when_extraction_fails(tmp_path, source):
@@ -219,7 +274,14 @@ def test_run_pipeline_stops_before_separation_when_extraction_fails(tmp_path, so
             return SeparatedStems(drums_path=destination_dir / "drums.wav", accompaniment_path=destination_dir / "no_drums.wav")
 
     run_pipeline(
-        job.id, source, store, FakeFailingExtractor(), SpySeparator(), FakeSuccessfulTranscriber(), tmp_path
+        job.id,
+        source,
+        store,
+        FakeFailingExtractor(),
+        SpySeparator(),
+        FakeSuccessfulTranscriber(),
+        FakeSuccessfulTempoEstimator(),
+        tmp_path,
     )
 
     updated = store.get(job.id)
@@ -240,10 +302,45 @@ def test_run_pipeline_stops_before_transcription_when_separation_fails(tmp_path,
             return []
 
     run_pipeline(
-        job.id, source, store, FakeSuccessfulExtractor(), FakeFailingSeparator(), SpyTranscriber(), tmp_path
+        job.id,
+        source,
+        store,
+        FakeSuccessfulExtractor(),
+        FakeFailingSeparator(),
+        SpyTranscriber(),
+        FakeSuccessfulTempoEstimator(),
+        tmp_path,
     )
 
     updated = store.get(job.id)
     assert updated.status == JobStatus.FAILED
     assert updated.error == "separation blew up"
     assert transcriber_called is False
+
+
+def test_run_pipeline_stops_before_tempo_mapping_when_transcription_fails(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+    estimator_called = False
+
+    class SpyTempoEstimator:
+        def estimate(self, audio_path):
+            nonlocal estimator_called
+            estimator_called = True
+            return 120.0
+
+    run_pipeline(
+        job.id,
+        source,
+        store,
+        FakeSuccessfulExtractor(),
+        FakeSuccessfulSeparator(),
+        FakeFailingTranscriber(),
+        SpyTempoEstimator(),
+        tmp_path,
+    )
+
+    updated = store.get(job.id)
+    assert updated.status == JobStatus.FAILED
+    assert updated.error == "transcription blew up"
+    assert estimator_called is False

@@ -120,4 +120,29 @@ describe("SyncedPlayer", () => {
 
     expect(player.getMasterVolume()).toBe(0.5);
   });
+
+  it("should set the drums gain value independently of the master and accompaniment gains", () => {
+    const player = new SyncedPlayer(context, makeBuffer(10), makeBuffer(10));
+    const gains = context.createGain.mock.results.map((r) => r.value as FakeGainNode);
+    const [drumsGain, accompanimentGain, masterGain] = gains;
+
+    player.setDrumsVolume(0);
+
+    expect(player.getDrumsVolume()).toBe(0);
+    expect(drumsGain.gain.value).toBe(0);
+    expect(accompanimentGain.gain.value).toBe(1);
+    expect(masterGain.gain.value).toBe(1);
+  });
+
+  it("should not affect playback position or sync when changing drums volume", () => {
+    const player = new SyncedPlayer(context, makeBuffer(10), makeBuffer(10));
+    context.currentTime = 0;
+    player.play();
+    context.currentTime = 4;
+
+    player.setDrumsVolume(0);
+
+    expect(player.getCurrentTime()).toBe(4);
+    expect(context.createBufferSource).toHaveBeenCalledTimes(2);
+  });
 });

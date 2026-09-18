@@ -105,6 +105,14 @@ export class SyncedPlayer {
     return this.masterGain.gain.value;
   }
 
+  setDrumsVolume(value: number): void {
+    this.drumsGain.gain.value = value;
+  }
+
+  getDrumsVolume(): number {
+    return this.drumsGain.gain.value;
+  }
+
   private startSources(offset: number): void {
     this.drumsSource = this.context.createBufferSource();
     this.drumsSource.buffer = this.drumsBuffer;

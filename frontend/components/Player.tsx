@@ -43,6 +43,7 @@ export default function Player({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [masterVolume, setMasterVolume] = useState(1);
+  const [drumsVolume, setDrumsVolume] = useState(1);
   const playerRef = useRef<SyncedPlayer | null>(null);
   const rafRef = useRef<number | null>(null);
 
@@ -134,6 +135,16 @@ export default function Player({
     setMasterVolume(value);
   }
 
+  function handleDrumsVolumeChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const player = playerRef.current;
+    if (!player) {
+      return;
+    }
+    const value = Number(event.target.value) / 100;
+    player.setDrumsVolume(value);
+    setDrumsVolume(value);
+  }
+
   if (status === "loading") {
     return <p>Loading audio...</p>;
   }
@@ -169,6 +180,17 @@ export default function Player({
             max={100}
             value={masterVolume * 100}
             onChange={handleVolumeChange}
+          />
+        </label>
+        <label>
+          Drums volume
+          <input
+            type="range"
+            aria-label="Drums volume"
+            min={0}
+            max={100}
+            value={drumsVolume * 100}
+            onChange={handleDrumsVolumeChange}
           />
         </label>
       </div>

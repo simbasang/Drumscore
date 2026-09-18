@@ -67,3 +67,39 @@ cross-validating both and preferring the one with higher confidence),
 and/or adding octave-error correction (e.g. checking whether
 half/double the detected tempo fits the onset grid better) to
 `LibrosaTempoEstimator`.
+
+---
+
+## Generated notation doesn't look/read quite right yet
+
+**Found in:** MVP-007 manual verification (user feedback after reviewing
+a real generated score)
+
+User's own words: doesn't like how it looks, doesn't feel fully correct
+yet — needs to be sharpened for better accuracy. Two distinct issues
+bundled under this:
+
+1. **Visual noise from unconsolidated rests.** Empty 16th-note slots
+   are each rendered as their own individual rest instead of being
+   merged into larger rest values (a full measure of silence renders
+   as 16 separate 16th rests instead of one whole rest). This is a
+   pure rendering/engraving problem in `buildScore.ts` /
+   `DrumScore.tsx` — the underlying event data and timestamps are
+   unaffected.
+2. **Classification accuracy.** DrumScript's rule-based classifier
+   (see MVP-005) produces a plausible but imperfect transcription —
+   expected per its own docs to be weakest outside fast/metal genres.
+   This is a fundamental limitation of the chosen approach, not a
+   quick fix (see the MVP-005 evaluation notes in git history for why
+   alternatives were rejected).
+
+**Fix would involve:**
+- Rest consolidation: post-process each measure's rest run into the
+  fewest correctly-tied rest values (whole/half/quarter/etc.) before
+  building `StaveNote`s — a contained, testable change to
+  `buildScore.ts`.
+- Accuracy: no quick fix. Options to revisit later: tune DrumScript's
+  physics thresholds against a labeled sample of real songs, swap in
+  or blend a different transcription engine behind the existing
+  `DrumTranscriber` interface, or expose a manual-correction UI
+  (already on the MVP roadmap as a post-MVP feature).

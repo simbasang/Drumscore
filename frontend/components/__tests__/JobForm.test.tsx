@@ -4,9 +4,9 @@ import { createJob, getAnalysis, getJob } from "@/lib/api/jobs";
 import JobForm from "../JobForm";
 
 jest.mock("@/lib/api/jobs");
-jest.mock("@/components/DrumScore", () => {
-  return function MockDrumScore({ events }: { events: unknown[] }) {
-    return <div data-testid="drum-score-mock" data-event-count={events.length} />;
+jest.mock("@/components/Player", () => {
+  return function MockPlayer({ events }: { events: unknown[] }) {
+    return <div data-testid="player-mock" data-event-count={events.length} />;
   };
 });
 
@@ -156,8 +156,8 @@ describe("JobForm", () => {
       });
 
       expect(getAnalysis).toHaveBeenCalledWith("http://localhost:8000", "job-1");
-      const score = await screen.findByTestId("drum-score-mock");
-      expect(score).toHaveAttribute("data-event-count", "2");
+      const player = await screen.findByTestId("player-mock");
+      expect(player).toHaveAttribute("data-event-count", "2");
     });
 
     it("should show the backend's error and stop polling once the job fails", async () => {

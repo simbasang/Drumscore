@@ -103,3 +103,19 @@ bundled under this:
   or blend a different transcription engine behind the existing
   `DrumTranscriber` interface, or expose a manual-correction UI
   (already on the MVP roadmap as a post-MVP feature).
+
+---
+
+## No auto-scroll to follow the playhead during playback
+
+**Found in:** MVP-008 design discussion
+
+The user wants the notation view to auto-scroll and keep the moving
+playhead visible during playback, but it isn't in PROJECT.md's roadmap
+anywhere yet. Deferred out of MVP-008 to keep that task scoped to the
+playback engine itself; not forgotten.
+
+**Fix would involve:** in the Player/DrumScore integration, watching
+the playhead's current row and calling `scrollIntoView` (or manual
+scroll math) on the row's stave element when it's about to leave the
+viewport, without fighting the user's own manual scrolling.

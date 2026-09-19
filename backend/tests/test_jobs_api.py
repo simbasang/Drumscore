@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -88,6 +89,11 @@ def isolated_dependencies(tmp_path):
     app.dependency_overrides.pop(get_transcriber, None)
     app.dependency_overrides.pop(get_tempo_estimator, None)
     app.dependency_overrides.pop(get_storage_dir, None)
+
+
+def _create_job_through_to_tempo_mapped() -> str:
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    return create_response.json()["id"]
 
 
 def test_create_job_with_valid_url_returns_queued_job():
@@ -248,6 +254,37 @@ def test_get_drums_audio_returns_409_when_not_ready_yet():
     response = client.get(f"/api/jobs/{job_id}/audio/drums")
 
     assert response.status_code == 409
+
+
+def test_get_job_drums_audio_logs_warning_when_job_not_found(caplog):
+    with caplog.at_level(logging.WARNING, logger="app.api.jobs"):
+        response = client.get("/api/jobs/does-not-exist/audio/drums")
+
+    assert response.status_code == 404
+    assert "does-not-exist" in caplog.text
+
+
+def test_get_job_drums_audio_logs_warning_when_not_ready(caplog):
+    app.dependency_overrides[get_audio_extractor] = lambda: FailingAudioExtractor()
+
+    job = client.post("/api/jobs", json={"url": "https://www.youtube.com/watch?v=abc12345678"}).json()
+    job_id = job["id"]
+
+    with caplog.at_level(logging.WARNING, logger="app.api.jobs"):
+        response = client.get(f"/api/jobs/{job_id}/audio/drums")
+
+    assert response.status_code == 409
+    assert job_id in caplog.text
+
+
+def test_get_job_drums_audio_logs_info_on_success(caplog):
+    job_id = _create_job_through_to_tempo_mapped()
+
+    with caplog.at_level(logging.INFO, logger="app.api.jobs"):
+        response = client.get(f"/api/jobs/{job_id}/audio/drums")
+
+    assert response.status_code == 200
+    assert job_id in caplog.text
 
 
 def test_retry_job_reruns_the_pipeline_from_the_failed_step():

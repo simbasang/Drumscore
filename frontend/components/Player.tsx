@@ -68,8 +68,9 @@ export default function Player({
         playerRef.current = player;
         setDuration(player.duration);
         setStatus("ready");
-      } catch {
+      } catch (error) {
         if (!cancelled) {
+          console.error(`[Player] failed to load audio for job ${jobId}:`, error);
           setStatus("error");
         }
       }

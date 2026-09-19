@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -17,6 +18,8 @@ from app.tempo_estimation import TempoEstimator
 from app.transcription import DrumEvent, DrumInstrument, DrumTranscriber
 from app.youtube_audio_extractor import YtDlpAudioExtractor
 from app.youtube_source import YouTubeSourceValidator
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -185,14 +188,21 @@ def get_job_drums_audio(job_id: str, store: JobStore = Depends(get_job_store)) -
     job = store.get(job_id)
 
     if job is None:
+        logger.warning("Drum audio requested for unknown job %s", job_id)
         raise HTTPException(status_code=404, detail="Job not found")
 
     if job.drums_path is None:
+        logger.warning(
+            "Drum audio requested for job %s before it was ready (status=%s)",
+            job_id,
+            job.status.value,
+        )
         raise HTTPException(
             status_code=409,
             detail=f"Drum audio not available yet: job status is {job.status.value}",
         )
 
+    logger.info("Serving drum audio for job %s from %s", job_id, job.drums_path)
     return FileResponse(job.drums_path, media_type="audio/wav")
 
 
@@ -203,14 +213,21 @@ def get_job_accompaniment_audio(
     job = store.get(job_id)
 
     if job is None:
+        logger.warning("Accompaniment audio requested for unknown job %s", job_id)
         raise HTTPException(status_code=404, detail="Job not found")
 
     if job.accompaniment_path is None:
+        logger.warning(
+            "Accompaniment audio requested for job %s before it was ready (status=%s)",
+            job_id,
+            job.status.value,
+        )
         raise HTTPException(
             status_code=409,
             detail=f"Accompaniment audio not available yet: job status is {job.status.value}",
         )
 
+    logger.info("Serving accompaniment audio for job %s from %s", job_id, job.accompaniment_path)
     return FileResponse(job.accompaniment_path, media_type="audio/wav")
 
 

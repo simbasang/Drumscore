@@ -261,7 +261,12 @@ def test_get_job_drums_audio_logs_warning_when_job_not_found(caplog):
         response = client.get("/api/jobs/does-not-exist/audio/drums")
 
     assert response.status_code == 404
-    assert "does-not-exist" in caplog.text
+    assert any(
+        record.name == "app.api.jobs"
+        and record.levelno == logging.WARNING
+        and "does-not-exist" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_get_job_drums_audio_logs_warning_when_not_ready(caplog):
@@ -274,7 +279,12 @@ def test_get_job_drums_audio_logs_warning_when_not_ready(caplog):
         response = client.get(f"/api/jobs/{job_id}/audio/drums")
 
     assert response.status_code == 409
-    assert job_id in caplog.text
+    assert any(
+        record.name == "app.api.jobs"
+        and record.levelno == logging.WARNING
+        and job_id in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_get_job_drums_audio_logs_info_on_success(caplog):
@@ -284,7 +294,16 @@ def test_get_job_drums_audio_logs_info_on_success(caplog):
         response = client.get(f"/api/jobs/{job_id}/audio/drums")
 
     assert response.status_code == 200
-    assert job_id in caplog.text
+    assert any(
+        record.name == "app.api.jobs"
+        and record.levelno == logging.INFO
+        and job_id in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_jobs_logger_is_configured_for_info_level():
+    assert logging.getLogger("app.api.jobs").isEnabledFor(logging.INFO)
 
 
 def test_retry_job_reruns_the_pipeline_from_the_failed_step():

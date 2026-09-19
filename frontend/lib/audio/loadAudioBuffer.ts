@@ -54,5 +54,8 @@ export async function loadAudioBuffer(
     }
   }
 
+  // Fallback branch not separately tested: it's only reached if retryOptions.attempts
+  // is 0 (never happens with the default of 3) or if the underlying fetch/decode call
+  // rejects with a non-Error value, which fetch/decodeAudioData do not do in practice.
   throw lastError instanceof Error ? lastError : new Error(`Failed to load audio: ${url}`);
 }

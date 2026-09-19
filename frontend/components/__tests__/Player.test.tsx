@@ -113,6 +113,7 @@ describe("Player", () => {
   });
 
   it("should show an error message when audio fails to load", async () => {
+    const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
     (loadAudioBuffer as jest.Mock).mockRejectedValue(new Error("network error"));
 
     render(
@@ -126,6 +127,8 @@ describe("Player", () => {
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/failed to load audio/i);
+
+    consoleErrorSpy.mockRestore();
   });
 
   it("should log the underlying error and job id when audio fails to load", async () => {

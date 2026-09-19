@@ -128,6 +128,30 @@ describe("Player", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/failed to load audio/i);
   });
 
+  it("should log the underlying error and job id when audio fails to load", async () => {
+    const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+    const loadError = new Error("network error");
+    (loadAudioBuffer as jest.Mock).mockRejectedValue(loadError);
+
+    render(
+      <Player
+        apiBaseUrl="http://localhost:8000"
+        jobId="job-1"
+        events={[]}
+        tempoBpm={120}
+        createAudioContext={fakeContextFactory}
+      />,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/failed to load audio/i);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("job-1"),
+      loadError,
+    );
+
+    consoleErrorSpy.mockRestore();
+  });
+
   it("should play, run a raf tick, and update the drum score's currentTime", async () => {
     const startLength = MockedSyncedPlayer.mock.instances.length;
     render(

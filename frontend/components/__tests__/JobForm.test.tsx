@@ -190,6 +190,7 @@ describe("JobForm", () => {
     });
 
     it("should keep polling and show a reconnecting message after a single transient failure", async () => {
+      const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
       (createJob as jest.Mock).mockResolvedValue({
         id: "job-1",
         url: "https://youtu.be/dQw4w9WgXcQ",
@@ -213,9 +214,12 @@ describe("JobForm", () => {
       });
       expect(screen.queryByText(/lost connection, retrying/i)).not.toBeInTheDocument();
       expect(screen.getByText(/separating drum stems/i)).toBeInTheDocument();
+
+      consoleErrorSpy.mockRestore();
     });
 
     it("should stop polling after several consecutive failures", async () => {
+      const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
       (createJob as jest.Mock).mockResolvedValue({
         id: "job-1",
         url: "https://youtu.be/dQw4w9WgXcQ",
@@ -238,6 +242,58 @@ describe("JobForm", () => {
         jest.advanceTimersByTime(4000);
       });
       expect((getJob as jest.Mock).mock.calls.length).toBe(callsAfterStop);
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it("should show a gave-up message instead of 'retrying' once polling stops after consecutive failures", async () => {
+      const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+      (createJob as jest.Mock).mockResolvedValue({
+        id: "job-1",
+        url: "https://youtu.be/dQw4w9WgXcQ",
+        status: "queued",
+      });
+      (getJob as jest.Mock).mockRejectedValue(new Error("network down"));
+
+      render(<JobForm apiBaseUrl="http://localhost:8000" />);
+      fillAndSubmit("https://youtu.be/dQw4w9WgXcQ");
+      await act(async () => {});
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+        jest.advanceTimersByTime(2000);
+        jest.advanceTimersByTime(2000);
+      });
+
+      expect(screen.queryByText(/lost connection, retrying/i)).not.toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent(/lost connection to the server/i);
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it("should log each failed poll attempt with the job id and underlying error", async () => {
+      const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+      const pollError = new Error("network blip");
+      (createJob as jest.Mock).mockResolvedValue({
+        id: "job-1",
+        url: "https://youtu.be/dQw4w9WgXcQ",
+        status: "queued",
+      });
+      (getJob as jest.Mock)
+        .mockRejectedValueOnce(pollError)
+        .mockResolvedValueOnce({ id: "job-1", status: "separating_stems" });
+
+      render(<JobForm apiBaseUrl="http://localhost:8000" />);
+      fillAndSubmit("https://youtu.be/dQw4w9WgXcQ");
+      await act(async () => {});
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining("job-1"), pollError);
+
+      consoleErrorSpy.mockRestore();
     });
   });
 });

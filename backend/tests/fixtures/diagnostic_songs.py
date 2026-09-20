@@ -186,9 +186,98 @@ def _build_intro_count_in() -> DiagnosticSong:
     )
 
 
+def _build_dense_fill() -> DiagnosticSong:
+    tempo_bpm = 120.0
+    seconds_per_beat = 60.0 / tempo_bpm
+    groove_measures = 2
+    groove_hits = _steady_rock_beat(
+        start_time=0.0, tempo_bpm=tempo_bpm, num_measures=groove_measures
+    )
+
+    fill_start = groove_measures * 4 * seconds_per_beat
+    seconds_per_sixteenth = seconds_per_beat / 4
+    fill_instruments = [
+        DrumInstrument.SNARE,
+        DrumInstrument.SNARE,
+        DrumInstrument.TOM_HIGH,
+        DrumInstrument.TOM_HIGH,
+        DrumInstrument.TOM_MID,
+        DrumInstrument.TOM_MID,
+        DrumInstrument.TOM_LOW,
+        DrumInstrument.TOM_LOW,
+        DrumInstrument.SNARE,
+        DrumInstrument.SNARE,
+        DrumInstrument.TOM_HIGH,
+        DrumInstrument.TOM_HIGH,
+        DrumInstrument.TOM_MID,
+        DrumInstrument.TOM_MID,
+        DrumInstrument.TOM_LOW,
+        DrumInstrument.TOM_LOW,
+    ]
+    fill_hits = [
+        ExpectedHit(time=fill_start + i * seconds_per_sixteenth, instrument=instrument)
+        for i, instrument in enumerate(fill_instruments)
+    ]
+
+    resolution_time = fill_start + 4 * seconds_per_beat
+    resolution_hits = [
+        ExpectedHit(time=resolution_time, instrument=DrumInstrument.CRASH),
+        ExpectedHit(time=resolution_time, instrument=DrumInstrument.KICK),
+    ]
+
+    hits = groove_hits + fill_hits + resolution_hits
+
+    return DiagnosticSong(
+        key="dense_fill",
+        description=(
+            "Two measures of steady groove followed by a full measure of "
+            "straight 16th-note snare/tom fill and a crash+kick downbeat "
+            "resolution - exercises dense same-slot event rates and "
+            "simultaneous hit grouping."
+        ),
+        tempo_bpm=tempo_bpm,
+        downbeat_offset_seconds=0.0,
+        duration_seconds=resolution_time + 1.5,
+        expected_hits=tuple(sorted(hits, key=lambda h: h.time)),
+    )
+
+
+def _build_timing_variation() -> DiagnosticSong:
+    tempo_bpm = 120.0
+    num_measures = 4
+    seconds_per_beat = 60.0 / tempo_bpm
+    base_hits = _steady_rock_beat(start_time=0.0, tempo_bpm=tempo_bpm, num_measures=num_measures)
+
+    rng = np.random.default_rng(4200)
+    max_jitter_seconds = 0.02
+    jittered_hits = [
+        ExpectedHit(
+            time=max(0.0, hit.time + rng.uniform(-max_jitter_seconds, max_jitter_seconds)),
+            instrument=hit.instrument,
+        )
+        for hit in base_hits
+    ]
+
+    return DiagnosticSong(
+        key="timing_variation",
+        description=(
+            "Same groove/tempo as steady_4_4, but every hit carries a "
+            "deterministic +/-20ms timing offset (seeded RNG) simulating a "
+            "live, non-quantized performance instead of a perfectly "
+            "metronomic grid."
+        ),
+        tempo_bpm=tempo_bpm,
+        downbeat_offset_seconds=0.0,
+        duration_seconds=num_measures * 4 * seconds_per_beat + 1.0,
+        expected_hits=tuple(sorted(jittered_hits, key=lambda h: h.time)),
+    )
+
+
 _BUILDERS: dict[str, Callable[[], DiagnosticSong]] = {
     "steady_4_4": _build_steady_4_4,
     "intro_count_in": _build_intro_count_in,
+    "dense_fill": _build_dense_fill,
+    "timing_variation": _build_timing_variation,
 }
 
 

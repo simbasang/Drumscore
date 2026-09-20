@@ -1,3 +1,5 @@
+from collections import Counter
+
 import numpy as np
 import pytest
 import soundfile as sf
@@ -128,3 +130,74 @@ def test_list_diagnostic_songs_includes_steady_4_4_and_intro_count_in():
     keys = {song.key for song in list_diagnostic_songs()}
 
     assert {"steady_4_4", "intro_count_in"}.issubset(keys)
+
+
+REQUIRED_KEYS = {"steady_4_4", "intro_count_in", "dense_fill", "timing_variation"}
+
+
+def test_list_diagnostic_songs_covers_all_required_timing_cases():
+    keys = {song.key for song in list_diagnostic_songs()}
+
+    assert keys == REQUIRED_KEYS
+
+
+@pytest.mark.parametrize("key", sorted(REQUIRED_KEYS))
+def test_every_fixture_expected_hits_are_sorted_and_within_duration(key):
+    song = get_diagnostic_song(key)
+
+    times = [hit.time for hit in song.expected_hits]
+
+    assert times == sorted(times)
+    assert all(0.0 <= t < song.duration_seconds for t in times)
+
+
+@pytest.mark.parametrize("key", sorted(REQUIRED_KEYS))
+def test_every_fixture_generates_deterministic_audio(key):
+    song = get_diagnostic_song(key)
+
+    first = song.generate_audio()
+    second = song.generate_audio()
+
+    np.testing.assert_array_equal(first, second)
+
+
+def test_dense_fill_has_a_measure_with_more_hits_than_the_groove_measures():
+    song = get_diagnostic_song("dense_fill")
+    seconds_per_beat = 60.0 / song.tempo_bpm
+    measure_seconds = 4 * seconds_per_beat
+
+    hits_per_measure: dict[int, int] = {}
+    for hit in song.expected_hits:
+        measure_index = int(hit.time // measure_seconds)
+        hits_per_measure[measure_index] = hits_per_measure.get(measure_index, 0) + 1
+
+    groove_measure_counts = [hits_per_measure[0], hits_per_measure[1]]
+    fill_measure_count = hits_per_measure[2]
+
+    assert fill_measure_count > max(groove_measure_counts)
+
+
+def test_timing_variation_deviates_from_a_perfect_grid():
+    song = get_diagnostic_song("timing_variation")
+    seconds_per_sixteenth = (60.0 / song.tempo_bpm) / 4
+
+    on_grid_hits = sum(
+        1
+        for hit in song.expected_hits
+        if abs((hit.time / seconds_per_sixteenth) - round(hit.time / seconds_per_sixteenth))
+        < 1e-6
+    )
+
+    assert on_grid_hits < len(song.expected_hits)
+
+
+def test_timing_variation_has_the_same_instrument_counts_as_steady_4_4():
+    # Jitter can reorder hits that share a nominal time (e.g. a kick and a
+    # hi-hat on the same beat swapping order under +/-20ms human timing),
+    # so exact sequence isn't preserved - only the multiset of instruments is.
+    steady = get_diagnostic_song("steady_4_4")
+    varied = get_diagnostic_song("timing_variation")
+
+    assert Counter(h.instrument for h in steady.expected_hits) == Counter(
+        h.instrument for h in varied.expected_hits
+    )

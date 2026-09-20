@@ -44,6 +44,7 @@ export default function JobForm({ apiBaseUrl }: JobFormProps) {
   const [job, setJob] = useState<Job | null>(null);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [connectionIssue, setConnectionIssue] = useState(false);
+  const [pollingGaveUp, setPollingGaveUp] = useState(false);
   const pollHandle = useRef<ReturnType<typeof setInterval> | null>(null);
   const consecutiveFailures = useRef(0);
 
@@ -78,6 +79,7 @@ export default function JobForm({ apiBaseUrl }: JobFormProps) {
     stopPolling();
     consecutiveFailures.current = 0;
     setConnectionIssue(false);
+    setPollingGaveUp(false);
     pollHandle.current = setInterval(async () => {
       try {
         const updated = await getJob(apiBaseUrl, jobId);
@@ -88,9 +90,15 @@ export default function JobForm({ apiBaseUrl }: JobFormProps) {
           stopPolling();
         }
         await fetchAnalysisIfReady(jobId, updated.status);
-      } catch {
+      } catch (error) {
         consecutiveFailures.current += 1;
+        console.error(
+          `[JobForm] poll attempt ${consecutiveFailures.current}/${MAX_CONSECUTIVE_POLL_FAILURES} failed for job ${jobId}:`,
+          error,
+        );
         if (consecutiveFailures.current >= MAX_CONSECUTIVE_POLL_FAILURES) {
+          setConnectionIssue(false);
+          setPollingGaveUp(true);
           stopPolling();
         } else {
           setConnectionIssue(true);
@@ -138,6 +146,12 @@ export default function JobForm({ apiBaseUrl }: JobFormProps) {
       </form>
       {error && <p role="alert">{error}</p>}
       {connectionIssue && <p>Lost connection, retrying...</p>}
+      {pollingGaveUp && (
+        <p role="alert">
+          Lost connection to the server. Status may be out of date — reload the page to check
+          again.
+        </p>
+      )}
       {job && job.status === "failed" && (
         <p role="alert">{job.error ?? STATUS_LABELS.failed}</p>
       )}

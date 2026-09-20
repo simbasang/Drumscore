@@ -422,3 +422,16 @@ def test_get_job_returns_404_for_unknown_id():
     response = client.get("/api/jobs/does-not-exist")
 
     assert response.status_code == 404
+
+
+def test_get_job_logs_warning_when_job_not_found(caplog):
+    with caplog.at_level(logging.WARNING, logger="app.api.jobs"):
+        response = client.get("/api/jobs/does-not-exist")
+
+    assert response.status_code == 404
+    assert any(
+        record.name == "app.api.jobs"
+        and record.levelno == logging.WARNING
+        and "does-not-exist" in record.getMessage()
+        for record in caplog.records
+    )

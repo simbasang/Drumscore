@@ -86,6 +86,20 @@ describe("interpolatePlayheadX", () => {
     const result = interpolatePlayheadX(sameRowPoints, 0.5);
     expect(result).toEqual({ time: 0.5, x: 110, row: 2 });
   });
+
+  it("should hold instead of sliding backward when a dense measure's notes overflow into the next measure's column on the same row", () => {
+    // A dense 16th-note measure can overflow VexFlow's allocated column
+    // width, so the next measure's first note can render to the LEFT of
+    // the previous measure's last note, even though both are on the same
+    // row and time only moves forward.
+    const overflowPoints: TimelinePoint[] = [
+      { time: 0, x: 75, row: 0 },
+      { time: 1, x: 455, row: 0 },
+      { time: 1.1, x: 226, row: 0 },
+    ];
+    const result = interpolatePlayheadX(overflowPoints, 1.05);
+    expect(result).toEqual({ time: 1.05, x: 455, row: 0 });
+  });
 });
 
 describe("computeAutoScrollLeft", () => {

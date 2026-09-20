@@ -92,7 +92,7 @@ def run_transcription(
         store.update(job_id, status=JobStatus.FAILED, error=f"Unexpected error: {error}")
         return None
 
-    store.update(job_id, status=JobStatus.TRANSCRIBED, events=events)
+    store.update(job_id, status=JobStatus.TRANSCRIBED, events=events, raw_events=events)
     return events
 
 

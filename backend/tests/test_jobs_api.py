@@ -5,6 +5,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.jobs import (
+    BeatPointResponse,
+    TempoMapResponse,
+    TempoPointResponse,
     get_audio_extractor,
     get_job_store,
     get_stem_separator,
@@ -17,6 +20,7 @@ from app.jobs import JobStore
 from app.main import app
 from app.stem_separation import SeparatedStems, StemSeparationError
 from app.tempo_estimation import TempoEstimationError
+from app.timing import BeatPoint, TempoMap, TempoPoint
 from app.transcription import DrumEvent, DrumInstrument, TranscriptionError
 
 client = TestClient(app)
@@ -435,3 +439,36 @@ def test_get_job_logs_warning_when_job_not_found(caplog):
         and "does-not-exist" in record.getMessage()
         for record in caplog.records
     )
+
+
+def test_tempo_point_response_round_trips_a_domain_tempo_point():
+    point = TempoPoint(source_time=1.5, bpm=120.0)
+
+    response = TempoPointResponse.from_domain(point)
+    dumped = response.model_dump()
+
+    assert dumped == {"source_time": 1.5, "bpm": 120.0}
+
+
+def test_beat_point_response_round_trips_a_domain_beat_point():
+    point = BeatPoint(source_time=2.0, measure=1, beat=2, is_downbeat=False, confidence=0.9)
+
+    response = BeatPointResponse.from_domain(point)
+    dumped = response.model_dump()
+
+    assert dumped == {
+        "source_time": 2.0,
+        "measure": 1,
+        "beat": 2,
+        "is_downbeat": False,
+        "confidence": 0.9,
+    }
+
+
+def test_tempo_map_response_round_trips_a_domain_tempo_map():
+    tempo_map = TempoMap.constant(128.0)
+
+    response = TempoMapResponse.from_domain(tempo_map)
+    dumped = response.model_dump()
+
+    assert dumped == {"points": [{"source_time": 0.0, "bpm": 128.0}]}

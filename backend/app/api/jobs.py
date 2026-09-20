@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from app.audio_extraction import AudioExtractor
 from app.demucs_stem_separator import DemucsStemSeparator
+from app.diagnostics import EventDiagnostic, build_event_diagnostics
 from app.drumscript_transcriber import DrumScriptTranscriber
 from app.job_cleanup import cleanup_old_jobs
 from app.job_processor import PipelineConcurrencyLimiter, run_pipeline
@@ -272,4 +273,59 @@ def get_job_analysis(job_id: str, store: JobStore = Depends(get_job_store)) -> A
     return AnalysisResponse(
         tempo_bpm=job.tempo_bpm,
         events=[DrumEventResponse.from_event(event) for event in job.events],
+    )
+
+
+class EventDiagnosticResponse(BaseModel):
+    event_id: str
+    instrument: DrumInstrument
+    source_time: float
+    velocity: float | None = None
+    confidence: float | None = None
+    measure: int | None = None
+    beat: int | None = None
+    subdivision: int | None = None
+    quantized_time: float | None = None
+    quantization_error_seconds: float | None = None
+
+    @classmethod
+    def from_diagnostic(cls, diagnostic: EventDiagnostic) -> "EventDiagnosticResponse":
+        return cls(
+            event_id=diagnostic.event_id,
+            instrument=diagnostic.instrument,
+            source_time=diagnostic.source_time,
+            velocity=diagnostic.velocity,
+            confidence=diagnostic.confidence,
+            measure=diagnostic.measure,
+            beat=diagnostic.beat,
+            subdivision=diagnostic.subdivision,
+            quantized_time=diagnostic.quantized_time,
+            quantization_error_seconds=diagnostic.quantization_error_seconds,
+        )
+
+
+class DiagnosticsResponse(BaseModel):
+    tempo_bpm: float
+    events: list[EventDiagnosticResponse]
+
+
+@router.get("/{job_id}/diagnostics", response_model=DiagnosticsResponse)
+def get_job_diagnostics(
+    job_id: str, store: JobStore = Depends(get_job_store)
+) -> DiagnosticsResponse:
+    job = store.get(job_id)
+
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.raw_events is None or job.events is None or job.tempo_bpm is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Diagnostics not available yet: job status is {job.status.value}",
+        )
+
+    diagnostics = build_event_diagnostics(job.raw_events, job.events, job.tempo_bpm)
+    return DiagnosticsResponse(
+        tempo_bpm=job.tempo_bpm,
+        events=[EventDiagnosticResponse.from_diagnostic(d) for d in diagnostics],
     )

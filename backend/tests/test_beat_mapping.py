@@ -1,6 +1,6 @@
 import pytest
 
-from app.beat_mapping import quantize_events
+from app.beat_mapping import musical_position_to_seconds, quantize_events
 from app.transcription import DrumEvent, DrumInstrument
 
 
@@ -68,3 +68,40 @@ def test_quantize_events_supports_different_tempo():
     assert quantized[0].measure == 1
     assert quantized[0].beat == 2
     assert quantized[0].subdivision == 1
+
+
+@pytest.mark.parametrize(
+    "measure,beat,subdivision,expected_time",
+    [
+        (1, 1, 0, 0.0),
+        (1, 1, 1, 0.125),
+        (1, 1, 2, 0.25),
+        (1, 1, 3, 0.375),
+        (1, 2, 0, 0.5),
+        (1, 4, 0, 1.5),
+        (2, 1, 0, 2.0),
+        (2, 1, 1, 2.125),
+    ],
+)
+def test_musical_position_to_seconds_at_120bpm(measure, beat, subdivision, expected_time):
+    time = musical_position_to_seconds(measure, beat, subdivision, bpm=120.0)
+
+    assert time == pytest.approx(expected_time)
+
+
+def test_musical_position_to_seconds_is_the_inverse_of_quantize_events_on_grid_aligned_times():
+    grid_aligned_time = 1.5
+    event = _event(grid_aligned_time)
+
+    quantized = quantize_events([event], bpm=120.0)[0]
+    reconstructed_time = musical_position_to_seconds(
+        quantized.measure, quantized.beat, quantized.subdivision, bpm=120.0
+    )
+
+    assert reconstructed_time == pytest.approx(grid_aligned_time)
+
+
+def test_musical_position_to_seconds_supports_different_tempo():
+    time = musical_position_to_seconds(1, 2, 1, bpm=60.0)
+
+    assert time == pytest.approx(1.25)

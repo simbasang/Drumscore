@@ -30,6 +30,7 @@ class Job:
     drums_path: str | None = None
     accompaniment_path: str | None = None
     events: list[DrumEvent] | None = None
+    raw_events: list[DrumEvent] | None = None
     tempo_bpm: float | None = None
     error: str | None = None
 

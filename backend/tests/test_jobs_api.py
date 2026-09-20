@@ -211,6 +211,53 @@ def test_get_analysis_returns_404_for_unknown_job():
     assert response.status_code == 404
 
 
+def test_get_diagnostics_returns_traced_events_when_job_is_tempo_mapped():
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}/diagnostics")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tempo_bpm"] == 128.0
+    assert len(body["events"]) == 2
+    assert body["events"][0]["event_id"] == "e1"
+    assert body["events"][0]["source_time"] == 0.5
+    assert body["events"][0]["measure"] is not None
+    assert isinstance(body["events"][0]["quantization_error_seconds"], float)
+
+
+def test_get_diagnostics_returns_409_when_job_not_yet_tempo_mapped():
+    app.dependency_overrides[get_transcriber] = lambda: FailingTranscriber()
+
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}/diagnostics")
+
+    assert response.status_code == 409
+
+
+def test_get_diagnostics_returns_404_for_unknown_job():
+    response = client.get("/api/jobs/does-not-exist/diagnostics")
+
+    assert response.status_code == 404
+
+
+def test_get_diagnostics_does_not_change_job_state_or_analysis_output():
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+    analysis_before = client.get(f"/api/jobs/{job_id}/analysis").json()
+    job_before = client.get(f"/api/jobs/{job_id}").json()
+
+    client.get(f"/api/jobs/{job_id}/diagnostics")
+
+    analysis_after = client.get(f"/api/jobs/{job_id}/analysis").json()
+    job_after = client.get(f"/api/jobs/{job_id}").json()
+    assert analysis_after == analysis_before
+    assert job_after == job_before
+
+
 def test_get_drums_audio_returns_file_when_available():
     create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
     job_id = create_response.json()["id"]

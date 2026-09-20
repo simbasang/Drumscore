@@ -243,6 +243,53 @@ def test_run_tempo_mapping_marks_job_failed_on_unexpected_exception(tmp_path, so
     assert "division by zero" in updated.error
 
 
+def test_run_transcription_stores_raw_events_alongside_events(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+
+    run_transcription(job.id, tmp_path / "drums.wav", store, FakeSuccessfulTranscriber())
+
+    updated = store.get(job.id)
+    assert updated.raw_events == [DrumEvent(id="e1", time=1.0, instrument=DrumInstrument.KICK)]
+
+
+def test_run_tempo_mapping_does_not_modify_raw_events(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+    raw_events = [DrumEvent(id="e1", time=0.5, instrument=DrumInstrument.KICK)]
+    store.update(job.id, raw_events=raw_events)
+
+    run_tempo_mapping(
+        job.id, tmp_path / "drums.wav", raw_events, store, FakeSuccessfulTempoEstimator()
+    )
+
+    updated = store.get(job.id)
+    assert updated.raw_events == raw_events
+    assert updated.raw_events[0].beat is None
+    assert updated.events[0].beat is not None
+
+
+def test_run_pipeline_preserves_raw_events_separately_from_quantized_events(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+
+    run_pipeline(
+        job.id,
+        source,
+        store,
+        FakeSuccessfulExtractor(),
+        FakeSuccessfulSeparator(),
+        FakeSuccessfulTranscriber(),
+        FakeSuccessfulTempoEstimator(),
+        tmp_path,
+    )
+
+    updated = store.get(job.id)
+    assert updated.raw_events == [DrumEvent(id="e1", time=1.0, instrument=DrumInstrument.KICK)]
+    assert updated.raw_events[0].beat is None
+    assert updated.events[0].beat is not None
+
+
 def test_run_pipeline_runs_all_four_steps_on_success(tmp_path, source):
     store = JobStore()
     job = store.create(url=source.url)

@@ -179,6 +179,7 @@ def get_job(job_id: str, store: JobStore = Depends(get_job_store)) -> JobRespons
     job = store.get(job_id)
 
     if job is None:
+        logger.warning("Job status requested for unknown job %s", job_id)
         raise HTTPException(status_code=404, detail="Job not found")
 
     return JobResponse.from_job(job)

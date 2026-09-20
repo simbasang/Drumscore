@@ -16,6 +16,7 @@ from app.jobs import JobStatus, JobStore
 from app.media_source import ParsedSource
 from app.stem_separation import SeparatedStems, StemSeparationError
 from app.tempo_estimation import TempoEstimationError
+from app.timing import TempoPoint
 from app.transcription import DrumEvent, DrumInstrument, TranscriptionError
 
 
@@ -219,6 +220,20 @@ def test_run_tempo_mapping_marks_job_tempo_mapped_on_success(tmp_path, source):
     assert updated.tempo_bpm == 120.0
     assert updated.events[0].beat == 2
     assert updated.events[0].time == 0.5
+
+
+def test_run_tempo_mapping_populates_tempo_map_alongside_the_legacy_scalar_bpm(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+    events = [DrumEvent(id="e1", time=0.5, instrument=DrumInstrument.KICK)]
+
+    run_tempo_mapping(job.id, tmp_path / "drums.wav", events, store, FakeSuccessfulTempoEstimator())
+
+    updated = store.get(job.id)
+    assert updated.tempo_bpm == 120.0
+    assert updated.tempo_map is not None
+    assert updated.tempo_map.bpm_at(0.0) == 120.0
+    assert updated.tempo_map.points == (TempoPoint(source_time=0.0, bpm=120.0),)
 
 
 def test_run_tempo_mapping_marks_job_failed_on_error(tmp_path, source):

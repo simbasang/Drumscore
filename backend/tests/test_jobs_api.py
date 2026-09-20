@@ -132,6 +132,17 @@ def test_create_job_runs_pipeline_to_tempo_mapped():
     assert body["tempo_bpm"] == 128.0
 
 
+def test_get_job_exposes_tempo_map_alongside_the_legacy_scalar_bpm():
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}")
+
+    body = response.json()
+    assert body["tempo_bpm"] == 128.0
+    assert body["tempo_map"] == {"points": [{"source_time": 0.0, "bpm": 128.0}]}
+
+
 def test_create_job_reports_extraction_failure_as_job_error():
     app.dependency_overrides[get_audio_extractor] = lambda: FailingAudioExtractor()
 

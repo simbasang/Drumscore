@@ -73,6 +73,41 @@ class CreateJobRequest(BaseModel):
     url: str
 
 
+class TempoPointResponse(BaseModel):
+    source_time: float
+    bpm: float
+
+    @classmethod
+    def from_domain(cls, point: TempoPoint) -> "TempoPointResponse":
+        return cls(source_time=point.source_time, bpm=point.bpm)
+
+
+class BeatPointResponse(BaseModel):
+    source_time: float
+    measure: int
+    beat: int
+    is_downbeat: bool
+    confidence: float | None = None
+
+    @classmethod
+    def from_domain(cls, point: BeatPoint) -> "BeatPointResponse":
+        return cls(
+            source_time=point.source_time,
+            measure=point.measure,
+            beat=point.beat,
+            is_downbeat=point.is_downbeat,
+            confidence=point.confidence,
+        )
+
+
+class TempoMapResponse(BaseModel):
+    points: list[TempoPointResponse]
+
+    @classmethod
+    def from_domain(cls, tempo_map: TempoMap) -> "TempoMapResponse":
+        return cls(points=[TempoPointResponse.from_domain(p) for p in tempo_map.points])
+
+
 class JobResponse(BaseModel):
     id: str
     url: str
@@ -82,6 +117,7 @@ class JobResponse(BaseModel):
     accompaniment_path: str | None = None
     event_count: int | None = None
     tempo_bpm: float | None = None
+    tempo_map: TempoMapResponse | None = None
     error: str | None = None
 
     @classmethod
@@ -95,6 +131,7 @@ class JobResponse(BaseModel):
             accompaniment_path=job.accompaniment_path,
             event_count=len(job.events) if job.events is not None else None,
             tempo_bpm=job.tempo_bpm,
+            tempo_map=TempoMapResponse.from_domain(job.tempo_map) if job.tempo_map else None,
             error=job.error,
         )
 
@@ -331,38 +368,3 @@ def get_job_diagnostics(
         tempo_bpm=job.tempo_bpm,
         events=[EventDiagnosticResponse.from_diagnostic(d) for d in diagnostics],
     )
-
-
-class TempoPointResponse(BaseModel):
-    source_time: float
-    bpm: float
-
-    @classmethod
-    def from_domain(cls, point: TempoPoint) -> "TempoPointResponse":
-        return cls(source_time=point.source_time, bpm=point.bpm)
-
-
-class BeatPointResponse(BaseModel):
-    source_time: float
-    measure: int
-    beat: int
-    is_downbeat: bool
-    confidence: float | None = None
-
-    @classmethod
-    def from_domain(cls, point: BeatPoint) -> "BeatPointResponse":
-        return cls(
-            source_time=point.source_time,
-            measure=point.measure,
-            beat=point.beat,
-            is_downbeat=point.is_downbeat,
-            confidence=point.confidence,
-        )
-
-
-class TempoMapResponse(BaseModel):
-    points: list[TempoPointResponse]
-
-    @classmethod
-    def from_domain(cls, tempo_map: TempoMap) -> "TempoMapResponse":
-        return cls(points=[TempoPointResponse.from_domain(p) for p in tempo_map.points])

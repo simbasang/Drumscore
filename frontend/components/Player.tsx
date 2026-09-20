@@ -1,11 +1,17 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 
 import type { AnalysisEvent } from "@/lib/api/jobs";
 import { type DecodableAudioContext, loadAudioBuffer } from "@/lib/audio/loadAudioBuffer";
 import { SyncedPlayer } from "@/lib/audio/SyncedPlayer";
-import DrumScore from "@/components/DrumScore";
+
+// VexFlow (imported by DrumScore) is the single largest chunk in the app's
+// JS bundle. It's only needed once a job reaches tempo_mapped, often
+// minutes after the page first loads, so it's loaded on demand instead of
+// bundled into the initial page load.
+const DrumScore = dynamic(() => import("@/components/DrumScore"), { ssr: false });
 
 interface PlayerProps {
   apiBaseUrl: string;

@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 
 import type { AnalysisEvent } from "@/lib/api/jobs";
+import { computeSlotTimeSeconds } from "@/lib/notation/timeline";
 import DrumScore from "../DrumScore";
 
 function event(overrides: Partial<AnalysisEvent>): AnalysisEvent {
@@ -122,5 +123,47 @@ describe("DrumScore", () => {
     rerender(<DrumScore tempoBpm={120} currentTime={8} events={events} />);
 
     expect(container.scrollLeft).toBeGreaterThan(0);
+  });
+
+  it("should never move the playhead backward in x while stepping through a real multi-row score", () => {
+    // MEASURES_PER_ROW is 4, so measure 5 starts a second row.
+    const events = [
+      event({ id: "1", measure: 4, beat: 4, subdivision: 3, instrument: "kick" }),
+      event({ id: "2", measure: 5, beat: 1, subdivision: 0, instrument: "snare" }),
+    ];
+    const lastRowZeroTime = computeSlotTimeSeconds(4, 4, 3, 120);
+    const firstRowOneTime = computeSlotTimeSeconds(5, 1, 0, 120);
+
+    const { rerender } = render(<DrumScore tempoBpm={120} currentTime={0} events={events} />);
+    const container = screen.getByTestId("drum-score");
+
+    const sampleTimes = [
+      lastRowZeroTime - 0.05,
+      lastRowZeroTime,
+      (lastRowZeroTime + firstRowOneTime) / 2,
+      firstRowOneTime,
+    ];
+
+    let previousX: number | null = null;
+    let previousY: number | null = null;
+    for (const time of sampleTimes) {
+      rerender(<DrumScore tempoBpm={120} currentTime={time} events={events} />);
+      const line = container.querySelector("#drum-score-playhead")!;
+      const x = Number(line.getAttribute("x1"));
+      const y = Number(line.getAttribute("y1"));
+
+      if (previousX !== null && previousY === y) {
+        expect(x).toBeGreaterThanOrEqual(previousX);
+      }
+      previousX = x;
+      previousY = y;
+    }
+
+    // Sanity check the boundary was actually exercised across two rows.
+    rerender(<DrumScore tempoBpm={120} currentTime={lastRowZeroTime} events={events} />);
+    const yBeforeBoundary = container.querySelector("#drum-score-playhead")!.getAttribute("y1");
+    rerender(<DrumScore tempoBpm={120} currentTime={firstRowOneTime} events={events} />);
+    const yAfterBoundary = container.querySelector("#drum-score-playhead")!.getAttribute("y1");
+    expect(yAfterBoundary).not.toBe(yBeforeBoundary);
   });
 });

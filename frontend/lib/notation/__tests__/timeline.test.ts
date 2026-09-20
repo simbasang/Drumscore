@@ -47,13 +47,58 @@ describe("interpolatePlayheadX", () => {
     expect(result?.x).toBe(60);
   });
 
-  it("should use the left point's row for interpolated positions", () => {
+  it("should hold at the old row's last point instead of sliding backward into the next row's x", () => {
     const rowChangePoints: TimelinePoint[] = [
       { time: 0, x: 190, row: 0 },
       { time: 1, x: 10, row: 1 },
     ];
     const result = interpolatePlayheadX(rowChangePoints, 0.5);
-    expect(result?.row).toBe(0);
+    expect(result).toEqual({ time: 0.5, x: 190, row: 0 });
+  });
+
+  it("should cut directly to the new row's first point once its time is reached", () => {
+    const rowChangePoints: TimelinePoint[] = [
+      { time: 0, x: 190, row: 0 },
+      { time: 1, x: 10, row: 1 },
+    ];
+    const result = interpolatePlayheadX(rowChangePoints, 1);
+    expect(result).toEqual({ time: 1, x: 10, row: 1 });
+  });
+
+  it("should never report a smaller x while still on the same row across a row-boundary bracket", () => {
+    const rowChangePoints: TimelinePoint[] = [
+      { time: 0, x: 190, row: 0 },
+      { time: 1, x: 10, row: 1 },
+    ];
+    const beforeBoundary = interpolatePlayheadX(rowChangePoints, 0.9)!;
+    const atBoundary = interpolatePlayheadX(rowChangePoints, 1)!;
+
+    expect(beforeBoundary.row).toBe(0);
+    expect(beforeBoundary.x).toBe(190);
+    expect(atBoundary.row).toBe(1);
+  });
+
+  it("should still interpolate x smoothly between two points on the same row", () => {
+    const sameRowPoints: TimelinePoint[] = [
+      { time: 0, x: 10, row: 2 },
+      { time: 1, x: 210, row: 2 },
+    ];
+    const result = interpolatePlayheadX(sameRowPoints, 0.5);
+    expect(result).toEqual({ time: 0.5, x: 110, row: 2 });
+  });
+
+  it("should hold instead of sliding backward when a dense measure's notes overflow into the next measure's column on the same row", () => {
+    // A dense 16th-note measure can overflow VexFlow's allocated column
+    // width, so the next measure's first note can render to the LEFT of
+    // the previous measure's last note, even though both are on the same
+    // row and time only moves forward.
+    const overflowPoints: TimelinePoint[] = [
+      { time: 0, x: 75, row: 0 },
+      { time: 1, x: 455, row: 0 },
+      { time: 1.1, x: 226, row: 0 },
+    ];
+    const result = interpolatePlayheadX(overflowPoints, 1.05);
+    expect(result).toEqual({ time: 1.05, x: 455, row: 0 });
   });
 });
 

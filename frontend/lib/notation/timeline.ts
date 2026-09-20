@@ -39,6 +39,17 @@ export function interpolatePlayheadX(points: TimelinePoint[], time: number): Tim
     const a = points[i];
     const b = points[i + 1];
     if (time >= a.time && time <= b.time) {
+      if (b.x < a.x) {
+        // Adjacent points can go backward in x for reasons outside this
+        // function's control: a new row restarts at the left margin while
+        // the previous row's last slot sits at the right edge, or a dense
+        // measure's notes overflow past the next measure's nominal start
+        // (VexFlow's Formatter can exceed its requested width). Either
+        // way, interpolating across such a pair would visibly slide the
+        // playhead backward. Hold at the earlier point until the later
+        // point's time is reached, then cut straight to it.
+        return time >= b.time ? b : { time, x: a.x, row: a.row };
+      }
       // Unreachable while points are sorted by non-decreasing time: any
       // pair sharing a.time with an earlier point would already have been
       // matched (and returned) by that earlier bracket first. Guards

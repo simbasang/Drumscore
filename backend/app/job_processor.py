@@ -8,6 +8,7 @@ from app.jobs import JobStatus, JobStore
 from app.media_source import ParsedSource
 from app.stem_separation import StemSeparationError, StemSeparator
 from app.tempo_estimation import TempoEstimationError, TempoEstimator
+from app.timing import TempoMap
 from app.transcription import DrumEvent, DrumTranscriber, TranscriptionError
 
 DEFAULT_MAX_CONCURRENT_PIPELINE_JOBS = 2
@@ -115,7 +116,13 @@ def run_tempo_mapping(
         return
 
     quantized_events = quantize_events(events, bpm)
-    store.update(job_id, status=JobStatus.TEMPO_MAPPED, tempo_bpm=bpm, events=quantized_events)
+    store.update(
+        job_id,
+        status=JobStatus.TEMPO_MAPPED,
+        tempo_bpm=bpm,
+        tempo_map=TempoMap.constant(bpm),
+        events=quantized_events,
+    )
 
 
 def run_pipeline(

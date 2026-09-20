@@ -75,6 +75,38 @@ describe("Player", () => {
     expect(MockedSyncedPlayer).not.toHaveBeenCalled();
   });
 
+  it("should not surface an error when an in-flight audio load rejects after unmount", async () => {
+    const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+    let rejectLoad!: (reason: unknown) => void;
+    (loadAudioBuffer as jest.Mock).mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectLoad = reject;
+      }),
+    );
+
+    const { unmount } = render(
+      <Player
+        apiBaseUrl="http://localhost:8000"
+        jobId="job-1"
+        events={[]}
+        tempoBpm={120}
+        createAudioContext={fakeContextFactory}
+      />,
+    );
+
+    unmount();
+    await act(async () => {
+      // Shaped like the AbortError a dev-only Fast Refresh/Strict Mode
+      // remount can produce - see
+      // docs/superpowers/plans/2026-09-20-abort-error-investigation.md.
+      rejectLoad(new DOMException("The operation was aborted.", "AbortError"));
+    });
+
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+
+    consoleErrorSpy.mockRestore();
+  });
+
   it("should close its AudioContext on unmount so contexts don't leak across job resubmissions", async () => {
     const closeContext = jest.fn();
     const fakeContext = { close: closeContext };

@@ -1,7 +1,9 @@
 import dataclasses
-from typing import Sequence
+from pathlib import Path
+from typing import Callable, Sequence
 
 import numpy as np
+import soundfile as sf
 
 from app.transcription import DrumInstrument
 
@@ -81,3 +83,123 @@ def render_events(
         audio = audio / peak
 
     return audio.astype(np.float32)
+
+
+@dataclasses.dataclass(frozen=True)
+class DiagnosticSong:
+    key: str
+    description: str
+    tempo_bpm: float
+    downbeat_offset_seconds: float
+    duration_seconds: float
+    expected_hits: tuple[ExpectedHit, ...]
+    sample_rate: int = SAMPLE_RATE
+
+    def generate_audio(self) -> np.ndarray:
+        return render_events(self.expected_hits, self.duration_seconds, self.sample_rate)
+
+    def write_wav(self, path: Path) -> Path:
+        sf.write(str(path), self.generate_audio(), self.sample_rate)
+        return path
+
+
+def _steady_rock_beat(
+    start_time: float, tempo_bpm: float, num_measures: int
+) -> list[ExpectedHit]:
+    seconds_per_beat = 60.0 / tempo_bpm
+    seconds_per_eighth = seconds_per_beat / 2
+
+    hits: list[ExpectedHit] = []
+    for measure in range(num_measures):
+        measure_start = start_time + measure * 4 * seconds_per_beat
+        for eighth in range(8):
+            hits.append(
+                ExpectedHit(
+                    time=measure_start + eighth * seconds_per_eighth,
+                    instrument=DrumInstrument.HIHAT_CLOSED,
+                )
+            )
+        hits.append(ExpectedHit(time=measure_start, instrument=DrumInstrument.KICK))
+        hits.append(
+            ExpectedHit(time=measure_start + 2 * seconds_per_beat, instrument=DrumInstrument.KICK)
+        )
+        hits.append(
+            ExpectedHit(time=measure_start + seconds_per_beat, instrument=DrumInstrument.SNARE)
+        )
+        hits.append(
+            ExpectedHit(
+                time=measure_start + 3 * seconds_per_beat, instrument=DrumInstrument.SNARE
+            )
+        )
+    return hits
+
+
+def _build_steady_4_4() -> DiagnosticSong:
+    tempo_bpm = 120.0
+    num_measures = 4
+    seconds_per_beat = 60.0 / tempo_bpm
+    hits = _steady_rock_beat(start_time=0.0, tempo_bpm=tempo_bpm, num_measures=num_measures)
+
+    return DiagnosticSong(
+        key="steady_4_4",
+        description=(
+            "Constant 120 BPM rock beat with the first downbeat at t=0; the "
+            "timing baseline every other fixture is compared against."
+        ),
+        tempo_bpm=tempo_bpm,
+        downbeat_offset_seconds=0.0,
+        duration_seconds=num_measures * 4 * seconds_per_beat + 1.0,
+        expected_hits=tuple(sorted(hits, key=lambda h: h.time)),
+    )
+
+
+def _build_intro_count_in() -> DiagnosticSong:
+    tempo_bpm = 120.0
+    num_measures = 4
+    seconds_per_beat = 60.0 / tempo_bpm
+    lead_in_silence = 0.5
+
+    count_in_hits = [
+        ExpectedHit(
+            time=lead_in_silence + beat * seconds_per_beat, instrument=DrumInstrument.HIHAT_CLOSED
+        )
+        for beat in range(4)
+    ]
+    downbeat_offset = lead_in_silence + 4 * seconds_per_beat
+    groove_hits = _steady_rock_beat(
+        start_time=downbeat_offset, tempo_bpm=tempo_bpm, num_measures=num_measures
+    )
+    hits = count_in_hits + groove_hits
+
+    return DiagnosticSong(
+        key="intro_count_in",
+        description=(
+            "0.5s of silence plus a 1-measure hi-hat count-in before the first "
+            "real downbeat, so measure 1 / beat 1 does NOT sit at t=0 - targets "
+            "the fixed-grid phase-alignment gap in quantize_events (see "
+            "TECHNICAL_DEBT.md, 'Quantization grid isn't phase-aligned to the beat')."
+        ),
+        tempo_bpm=tempo_bpm,
+        downbeat_offset_seconds=downbeat_offset,
+        duration_seconds=downbeat_offset + num_measures * 4 * seconds_per_beat + 1.0,
+        expected_hits=tuple(sorted(hits, key=lambda h: h.time)),
+    )
+
+
+_BUILDERS: dict[str, Callable[[], DiagnosticSong]] = {
+    "steady_4_4": _build_steady_4_4,
+    "intro_count_in": _build_intro_count_in,
+}
+
+
+def list_diagnostic_songs() -> list[DiagnosticSong]:
+    return [builder() for builder in _BUILDERS.values()]
+
+
+def get_diagnostic_song(key: str) -> DiagnosticSong:
+    try:
+        return _BUILDERS[key]()
+    except KeyError as error:
+        raise KeyError(
+            f"Unknown diagnostic song fixture: {key!r}. Known keys: {sorted(_BUILDERS)}"
+        ) from error

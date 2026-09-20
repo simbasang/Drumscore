@@ -1,153 +1,44 @@
-# Claude instructions — Drumscore
+# Claude instructions — Drumscore v1.0
 
-You are helping build **Drumscore**.
-
-Before making architectural or implementation decisions, read `PROJECT.md` completely. It is the product specification and MVP plan.
-
-## Goal
-
-Build the MVP described in `PROJECT.md`: a web application where a user submits a YouTube URL, the application extracts and separates the audio, automatically transcribes the drums, renders readable drum notation, and provides a synchronized practice player where the original drum track can be reduced or muted.
+Before changing code, read PROJECT.md, docs/ARCHITECTURE_V1.md, TECHNICAL_DEBT.md and the GitHub issue you were asked to implement. The issue is the immediate scope; the project and architecture documents define constraints.
 
 ## Working method
+Work one implementation issue at a time unless explicitly instructed otherwise.
 
-Work incrementally and do not attempt to build the entire application in one uncontrolled pass.
+For every bug or behavioral defect:
+1. reproduce it
+2. add targeted instrumentation if the cause is not proven
+3. identify/document the root cause
+4. add a regression test where practical
+5. implement the smallest root-cause fix
+6. run relevant checks
+7. verify the original reproduction
 
-Follow the MVP tasks in `PROJECT.md` in order unless there is a concrete technical reason to change the order.
+Do not patch symptoms. Never smooth/debounce a jumping playhead merely to hide incorrect timing data.
 
-For each task:
+For every issue: inspect current code first; state a short plan; keep changes scoped; preserve contracts unless the issue changes them; add/update tests; run relevant frontend/backend checks; report changes/tests/limitations; then stop unless explicitly told to continue.
 
-1. Inspect the existing repository and understand what is already implemented.
-2. State briefly what you intend to change.
-3. Implement the smallest complete solution satisfying that task's acceptance criteria.
-4. Add or update relevant tests.
-5. Run available tests, linting and type checking.
-6. Fix failures caused by your changes.
-7. Keep changes scoped to the current task.
-8. Update documentation when setup or architecture changes.
+## Critical timing model
+Source audio time is authoritative. Every event keeps an immutable original source timestamp.
 
-Do not silently replace major architectural choices. If a planned technology turns out to be unsuitable, explain the reason and propose the smallest appropriate alternative.
+Keep sourceTime, musicalPosition and renderedPosition separate. Quantization assigns musical position but never overwrites source time. Audio playback time comes from the Web Audio transport. requestAnimationFrame refreshes visuals only.
 
-## Architecture principles
+A scalar BPM is not sufficient for v1.0. Timing must support a tempo map plus phase/downbeat alignment.
 
-The most important rule is:
+## Architecture boundaries
+Keep media acquisition, normalization, stem separation, transcription, timing analysis, quantization, editable score model, engraving, playback/mixing, persistence/jobs and UI independent. Third-party outputs never become frontend/domain contracts. DrumScript, Demucs, librosa, VexFlow and yt-dlp are implementation details.
 
-**The source audio timeline is the source of truth.**
+## Transcription
+Do not claim quality improvements from one visual example. Use labelled/controlled fixtures and per-instrument metrics. Preserve raw engine output for diagnostics where useful. Never fabricate confidence values.
 
-Every detected drum hit must retain its original timestamp. Quantization and musical notation may add measure, beat and subdivision information, but must not destroy or replace the original timing information.
+## Notation
+Mandatory: five-line percussion staff; all stems upward; simultaneous hits aligned/grouped; clear open/closed hi-hat; musical note/rest durations instead of every hit as a sixteenth; layout adapts to musical density. Do not regress the existing explicit upward-stem implementation.
 
-Keep these concerns separated:
+## Player
+Web Audio remains authoritative. Stems stay synchronized through play, pause, seek, loop and playback-rate changes. Score following maps audio time through source-timestamp-linked score/timing data; it must not reconstruct time from one BPM.
 
-- media/source acquisition
-- audio processing
-- stem separation
-- drum transcription
-- tempo/beat mapping
-- application-owned score representation
-- notation rendering
-- audio playback
-- UI
+## Production
+Do not introduce production infrastructure before its epic. When productionization starts: jobs must be durable/recoverable, resources bounded, artifacts lifecycle-managed, logs/metrics useful, retries idempotent and secrets never committed.
 
-Use interfaces/adapters around experimental or replaceable dependencies such as YouTube extraction, Demucs and drum-transcription models.
-
-Do not let frontend code depend directly on raw model output.
-
-## Preferred stack
-
-Unless the repository establishes a better equivalent:
-
-Frontend:
-
-- Next.js
-- React
-- TypeScript
-- VexFlow
-- Web Audio API
-
-Backend:
-
-- Python
-- FastAPI
-- ffmpeg
-- yt-dlp for the initial source adapter
-- Demucs for initial stem separation
-
-For drum transcription, evaluate suitable maintained open-source implementations/models before writing custom ML code. Hide the selected implementation behind a transcription interface.
-
-## Drum notation requirements
-
-These are product requirements, not optional visual preferences.
-
-Generated notation must use a standard percussion staff and appropriate vertical drum positions.
-
-Most importantly:
-
-**All note stems must point upward.**
-
-This includes bass drum, snare, hi-hat, cymbals and toms.
-
-When hits occur simultaneously, render them together/aligned at the same rhythmic position and use a shared/grouped upward stem where the renderer permits it.
-
-Examples include:
-
-- kick + hi-hat
-- snare + hi-hat
-- kick + snare + crash
-
-Do not rely on VexFlow defaults if those defaults violate these rules. Configure or extend the rendering layer explicitly.
-
-Open and closed hi-hat must also be visually distinguishable.
-
-## Playback synchronization
-
-Do not build a notation clock that independently accumulates elapsed time.
-
-The audio playback clock determines current time. The notation/playhead reads that time and displays the corresponding score position.
-
-`requestAnimationFrame` may be used for UI refresh, but not as the authoritative playback clock.
-
-The design must remain capable of handling tempo changes and recordings that do not sit perfectly on a fixed BPM grid.
-
-## Audio mixer
-
-The MVP requires at least two synchronized playback stems:
-
-- accompaniment
-- drums
-
-The player must expose independent drum volume from 0–100%.
-
-At 0%, the user hears the accompaniment without the original drums. Changing drum volume must not change playback position or synchronization.
-
-Prefer Web Audio API gain nodes or an equivalent sample/timeline-synchronized solution.
-
-## Quality rules
-
-Prefer readable, boring, maintainable code over clever abstractions.
-
-Do not prematurely build infrastructure intended only for hypothetical scale.
-
-Do not add authentication, databases, cloud infrastructure or other out-of-scope features unless they become technically necessary for the current MVP task.
-
-Use strong types at module boundaries.
-
-Validate API input and return useful errors.
-
-Avoid giant components and giant processing modules.
-
-Add tests around deterministic logic, particularly:
-
-- transcription-model output mapping
-- timestamp preservation
-- beat/measure quantization
-- simultaneous event grouping
-- upward stem decisions
-- player synchronization calculations
-- drum mixer state
-
-## Initial instruction
-
-Start with **MVP-001 — Project foundation** from `PROJECT.md`.
-
-First inspect the repository. Then propose the concrete file/folder structure and dependencies for MVP-001. After that, implement MVP-001 only.
-
-Do not proceed automatically through every remaining MVP task in the same change. The project should remain reviewable task by task.
+## Task completion
+An issue is complete only when acceptance criteria are met, relevant tests pass, no known regression was introduced, changed contracts are documented, and newly discovered debt is recorded. If evidence contradicts a proposed implementation, stop and explain before making a major architectural substitution.

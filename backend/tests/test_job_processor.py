@@ -267,7 +267,7 @@ def test_run_tempo_mapping_marks_job_tempo_mapped_on_success(tmp_path, source):
     assert updated.events[0].time == 0.5
 
 
-def test_run_tempo_mapping_populates_tempo_map_alongside_the_legacy_scalar_bpm(tmp_path, source):
+def test_run_tempo_mapping_populates_tempo_map_alongside_tempo_bpm(tmp_path, source):
     store = JobStore()
     job = store.create(url=source.url)
     events = [DrumEvent(id="e1", time=0.5, instrument=DrumInstrument.KICK)]
@@ -350,7 +350,7 @@ def test_run_tempo_mapping_quantizes_with_beats_and_stores_them(tmp_path, source
     assert updated.events[0].time == 2.5
 
 
-def test_run_tempo_mapping_falls_back_to_the_legacy_grid_when_beat_detection_fails(tmp_path, source):
+def test_run_tempo_mapping_marks_job_failed_when_beat_detection_fails(tmp_path, source):
     store = JobStore()
     job = store.create(url=source.url)
     events = [DrumEvent(id="e1", time=0.5, instrument=DrumInstrument.KICK)]
@@ -365,14 +365,11 @@ def test_run_tempo_mapping_falls_back_to_the_legacy_grid_when_beat_detection_fai
     )
 
     updated = store.get(job.id)
-    assert updated.status == JobStatus.TEMPO_MAPPED
-    assert updated.beats is None
-    # 0.5s at the fallback 120bpm constant grid -> beat 2, matching
-    # quantize_events(events, bpm=120.0) exactly.
-    assert updated.events[0].beat == 2
+    assert updated.status == JobStatus.FAILED
+    assert updated.error == "no onsets detected"
 
 
-def test_run_tempo_mapping_falls_back_to_the_legacy_grid_with_fewer_than_two_beats(tmp_path, source):
+def test_run_tempo_mapping_marks_job_failed_when_fewer_than_two_beats_detected(tmp_path, source):
     store = JobStore()
     job = store.create(url=source.url)
     events = [DrumEvent(id="e1", time=0.5, instrument=DrumInstrument.KICK)]
@@ -387,9 +384,8 @@ def test_run_tempo_mapping_falls_back_to_the_legacy_grid_with_fewer_than_two_bea
     )
 
     updated = store.get(job.id)
-    assert updated.status == JobStatus.TEMPO_MAPPED
-    assert updated.beats is None
-    assert updated.events[0].beat == 2
+    assert updated.status == JobStatus.FAILED
+    assert updated.error == "Beat detection found only 1 beat(s); tempo mapping requires at least 2"
 
 
 def test_run_tempo_mapping_marks_job_failed_on_unexpected_beat_detector_exception(tmp_path, source):

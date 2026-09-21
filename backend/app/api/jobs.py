@@ -368,7 +368,12 @@ def get_job_diagnostics(
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    if job.raw_events is None or job.events is None or job.tempo_bpm is None:
+    if (
+        job.raw_events is None
+        or job.events is None
+        or job.tempo_bpm is None
+        or job.beats is None
+    ):
         raise HTTPException(
             status_code=409,
             detail=f"Diagnostics not available yet: job status is {job.status.value}",

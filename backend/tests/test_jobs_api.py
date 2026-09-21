@@ -280,6 +280,18 @@ def test_get_diagnostics_returns_409_when_job_not_yet_tempo_mapped():
     assert response.status_code == 409
 
 
+def test_get_diagnostics_returns_409_when_beats_missing_even_though_tempo_bpm_is_set(
+    isolated_dependencies,
+):
+    store = isolated_dependencies
+    job_id = _create_job_through_to_tempo_mapped()
+    store.update(job_id, beats=None)
+
+    response = client.get(f"/api/jobs/{job_id}/diagnostics")
+
+    assert response.status_code == 409
+
+
 def test_get_diagnostics_returns_404_for_unknown_job():
     response = client.get("/api/jobs/does-not-exist/diagnostics")
 

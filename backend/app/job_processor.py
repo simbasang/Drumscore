@@ -10,7 +10,7 @@ from app.jobs import JobStatus, JobStore
 from app.media_source import ParsedSource
 from app.stem_separation import StemSeparationError, StemSeparator
 from app.tempo_estimation import TempoEstimationError, TempoEstimator
-from app.timing import BeatPoint, TempoMap
+from app.timing import TempoMap
 from app.transcription import DrumEvent, DrumTranscriber, TranscriptionError
 
 DEFAULT_MAX_CONCURRENT_PIPELINE_JOBS = 2

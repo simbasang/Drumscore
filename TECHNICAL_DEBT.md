@@ -277,6 +277,50 @@ across rest slots between two real anchors - not from
 now that `DrumScore` was its only caller. The backend's `run_tempo_mapping`
 also now quantizes events with `quantize_events_with_beats` (real detected
 beat anchors, phase-aligned, not a t=0 grid) whenever at least two beats
-are detected, falling back to the legacy constant grid only if beat
-detection fails or returns fewer than two points - see
-`docs/superpowers/plans/2026-09-21-source-linked-playhead-timeline.md`.
+are detected; as of V1-011, a job whose beat detection cannot produce at
+least two beat anchors fails outright instead of falling back to a
+constant grid - the fallback and its `quantize_events`/
+`musical_position_to_seconds` grid functions have been deleted - see
+`docs/superpowers/plans/2026-09-21-source-linked-playhead-timeline.md` and
+`docs/superpowers/plans/2026-09-21-remove-legacy-scalar-bpm-path.md`.
+
+---
+
+## Diagnostics `quantization_error_seconds` is wrong for events that trigger the measure-shift
+
+**Found in:** V1-011 final review
+
+`run_tempo_mapping` (`backend/app/job_processor.py`) shifts every stored
+event's `measure` by a uniform `shift` whenever `quantize_events_with_beats`
+placed any event before the first detected beat (extrapolated `measure <= 0`),
+so the frontend's 1-based `buildMeasures` doesn't silently drop it. It stores
+the *unshifted* `beats` list alongside the *shifted* events. `/diagnostics`
+(`build_event_diagnostics` in `backend/app/diagnostics.py`) then reconstructs
+`quantized_time` from the shifted `measure`/`beat`/`subdivision` against the
+unshifted `beats` anchors via `beat_anchored_position_to_seconds`, so the two
+disagree by `shift * beats_per_measure * period` seconds whenever a shift
+happened.
+
+Worked example (`FakeOffsetBeatDetector` fixture, first beat at 2.5s =
+measure 1 beat 1), for an event at t=0.5s: `quantize_events_with_beats`
+places it at measure 0/beat 1/subdivision 0; the measure-shift stores it as
+measure 1; `beat_anchored_position_to_seconds(beats, 1, 1, 0)` reconstructs
+2.5s, so the endpoint reports `quantization_error_seconds` of +2.0s for a
+hit that was actually exactly on the grid.
+
+This predates V1-011 (both halves landed in V1-010), but V1-011 made the
+beat-anchored reconstruction path unconditional, so it's now the only
+reconstruction path - worth recording now that there's no remaining
+alternative path to mask it. Impact is confined to the `/diagnostics`
+inspection endpoint; playback, score rendering, and stored `event.time` are
+unaffected.
+
+**Fix would involve:** shifting the stored `beats` list by the same amount
+as the events (so quantization and its inverse share one origin), or
+reporting `quantized_time`/`quantization_error_seconds` from the pre-shift
+measure values. `test_run_tempo_mapping_quantizes_with_beats_and_stores_them`
+(`backend/tests/test_job_processor.py`) already uses the offset-beats
+fixture, so a regression test is cheap to add alongside the fix.
+
+**Deferred:** out of scope for V1-011 (#44) - tracked here for a follow-up
+GitHub issue against Epic 2/3 diagnostics tooling.

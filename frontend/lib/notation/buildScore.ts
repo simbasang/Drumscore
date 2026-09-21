@@ -7,6 +7,7 @@ export interface NoteSpec {
   articulations: string[];
   duration: string;
   startSixteenth: number;
+  sourceTimes: number[];
 }
 
 export interface RestSpec {
@@ -89,6 +90,7 @@ function buildNoteSpec(slotEvents: AnalysisEvent[], startSixteenth: number): Not
       .filter((articulation): articulation is string => Boolean(articulation)),
     duration: SLOT_DURATION,
     startSixteenth,
+    sourceTimes: slotEvents.map((event) => event.time),
   };
 }
 

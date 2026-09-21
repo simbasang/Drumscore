@@ -35,7 +35,7 @@ describe("buildMeasures", () => {
 
     expect(measures).toHaveLength(1);
     expect(measures[0]).toEqual([
-      { type: "note", keys: ["f/4"], articulations: [], duration: "16", startSixteenth: 0 },
+      { type: "note", keys: ["f/4"], articulations: [], duration: "16", startSixteenth: 0, sourceTimes: [0] },
       { type: "rest", duration: "16", startSixteenth: 1 },
       { type: "rest", duration: "8", startSixteenth: 2 },
       { type: "rest", duration: "4", startSixteenth: 4 },
@@ -55,6 +55,7 @@ describe("buildMeasures", () => {
       articulations: [],
       duration: "16",
       startSixteenth: 0,
+      sourceTimes: [0, 0],
     });
   });
 
@@ -67,6 +68,7 @@ describe("buildMeasures", () => {
       articulations: ["ah"],
       duration: "16",
       startSixteenth: 0,
+      sourceTimes: [0],
     });
   });
 
@@ -91,6 +93,7 @@ describe("buildMeasures", () => {
       duration: "16",
       // beat 2, subdivision 1 -> sixteenth position (2-1)*4 + 1 = 5
       startSixteenth: 5,
+      sourceTimes: [0],
     });
   });
 
@@ -122,5 +125,16 @@ describe("buildMeasures", () => {
     const measures = buildMeasures([event({ instrument: "kick", measure: null })]);
 
     expect(measures).toEqual([]);
+  });
+
+  it("should carry each slot's original event source times through unmodified", () => {
+    const measures = buildMeasures([
+      event({ id: "a", instrument: "kick", beat: 1, subdivision: 0, time: 12.34 }),
+      event({ id: "b", instrument: "hihat_closed", beat: 1, subdivision: 0, time: 12.36 }),
+    ]);
+
+    const noteSlot = measures[0][0];
+    expect(noteSlot.type).toBe("note");
+    expect((noteSlot as { sourceTimes: number[] }).sourceTimes).toEqual([12.34, 12.36]);
   });
 });

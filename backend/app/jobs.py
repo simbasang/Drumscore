@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 
-from app.timing import TempoMap
+from app.timing import BeatPoint, TempoMap
 from app.transcription import DrumEvent
 
 
@@ -34,6 +34,7 @@ class Job:
     raw_events: list[DrumEvent] | None = None
     tempo_bpm: float | None = None
     tempo_map: TempoMap | None = None
+    beats: list[BeatPoint] | None = None
     error: str | None = None
 
 

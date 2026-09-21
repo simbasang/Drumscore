@@ -243,3 +243,40 @@ first hiccup.
 polling failures before giving up, showing a "Lost connection,
 retrying..." message in between; a subsequent success clears it and
 resumes normal status updates.
+
+---
+
+## Playback playhead used a constant-tempo approximation instead of the real audio clock — resolved in V1-010
+
+**Found in:** Post-MVP-008 full app review (`docs/status/2026-09-20-current-app-state.md`, section 6)
+
+`DrumScore`'s playhead position was computed by
+`computeSlotTimeSeconds(measure, beat, subdivision, tempoBpm, ...)` — a
+pure constant-tempo formula that placed each rendered note slot on a
+grid derived from a single scalar BPM, completely decoupled from the
+real per-event audio timestamps produced by transcription. Any
+deviation between the true tempo (which can drift, or which the
+single detected BPM only approximates) and the constant grid would
+compound sample-by-sample over the length of a song, so the visual
+playhead could drift further and further from the actual audio by the
+end of a track even though each individual note was transcribed at
+the correct source time — the rendering path simply never consulted
+that source time.
+
+**Fix would involve:** threading each event's real source timestamp
+through score-building and layout so the playhead is positioned from
+actual audio time rather than a recomputed constant-tempo grid, with
+interpolation only across slots (rests) that have no real timestamp of
+their own.
+
+**Resolved (V1-010):** `DrumScore` now builds its playhead timeline from
+each rendered note slot's real `AnalysisEvent.time` values (threaded
+through `buildMeasures`'s `NoteSpec.sourceTimes`), interpolating only
+across rest slots between two real anchors - not from
+`computeSlotTimeSeconds`/a single BPM, which has been deleted as dead code
+now that `DrumScore` was its only caller. The backend's `run_tempo_mapping`
+also now quantizes events with `quantize_events_with_beats` (real detected
+beat anchors, phase-aligned, not a t=0 grid) whenever at least two beats
+are detected, falling back to the legacy constant grid only if beat
+detection fails or returns fewer than two points - see
+`docs/superpowers/plans/2026-09-21-source-linked-playhead-timeline.md`.

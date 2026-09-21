@@ -3,8 +3,10 @@ import dataclasses
 from app.beat_mapping import (
     DEFAULT_BEATS_PER_MEASURE,
     DEFAULT_SUBDIVISIONS_PER_BEAT,
+    beat_anchored_position_to_seconds,
     musical_position_to_seconds,
 )
+from app.timing import BeatPoint
 from app.transcription import DrumEvent, DrumInstrument
 
 
@@ -27,6 +29,7 @@ def build_event_diagnostics(
     raw_events: list[DrumEvent],
     quantized_events: list[DrumEvent],
     tempo_bpm: float,
+    beats: list[BeatPoint] | None = None,
     beats_per_measure: int = DEFAULT_BEATS_PER_MEASURE,
     subdivisions_per_beat: int = DEFAULT_SUBDIVISIONS_PER_BEAT,
 ) -> list[EventDiagnostic]:
@@ -47,9 +50,14 @@ def build_event_diagnostics(
             measure = quantized.measure
             beat = quantized.beat
             subdivision = quantized.subdivision
-            quantized_time = musical_position_to_seconds(
-                measure, beat, subdivision, tempo_bpm, beats_per_measure, subdivisions_per_beat
-            )
+            if beats is not None and len(beats) >= 2:
+                quantized_time = beat_anchored_position_to_seconds(
+                    beats, measure, beat, subdivision, beats_per_measure, subdivisions_per_beat
+                )
+            else:
+                quantized_time = musical_position_to_seconds(
+                    measure, beat, subdivision, tempo_bpm, beats_per_measure, subdivisions_per_beat
+                )
             quantization_error_seconds = quantized_time - raw_event.time
 
         diagnostics.append(

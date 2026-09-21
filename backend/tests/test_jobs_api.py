@@ -9,6 +9,7 @@ from app.api.jobs import (
     TempoMapResponse,
     TempoPointResponse,
     get_audio_extractor,
+    get_beat_detector,
     get_job_store,
     get_stem_separator,
     get_storage_dir,
@@ -77,6 +78,16 @@ class FailingTempoEstimator:
         raise TempoEstimationError("could not estimate tempo")
 
 
+class FakeBeatDetector:
+    def detect(self, audio_path):
+        return [
+            BeatPoint(source_time=0.0, measure=1, beat=1, is_downbeat=True),
+            BeatPoint(source_time=0.5, measure=1, beat=2, is_downbeat=False),
+            BeatPoint(source_time=1.0, measure=1, beat=3, is_downbeat=False),
+            BeatPoint(source_time=1.5, measure=1, beat=4, is_downbeat=False),
+        ]
+
+
 @pytest.fixture(autouse=True)
 def isolated_dependencies(tmp_path):
     store = JobStore()
@@ -85,6 +96,7 @@ def isolated_dependencies(tmp_path):
     app.dependency_overrides[get_stem_separator] = lambda: FakeStemSeparator()
     app.dependency_overrides[get_transcriber] = lambda: FakeTranscriber()
     app.dependency_overrides[get_tempo_estimator] = lambda: FakeTempoEstimator()
+    app.dependency_overrides[get_beat_detector] = lambda: FakeBeatDetector()
     app.dependency_overrides[get_storage_dir] = lambda: tmp_path
     yield store
     app.dependency_overrides.pop(get_job_store, None)
@@ -92,6 +104,7 @@ def isolated_dependencies(tmp_path):
     app.dependency_overrides.pop(get_stem_separator, None)
     app.dependency_overrides.pop(get_transcriber, None)
     app.dependency_overrides.pop(get_tempo_estimator, None)
+    app.dependency_overrides.pop(get_beat_detector, None)
     app.dependency_overrides.pop(get_storage_dir, None)
 
 
@@ -240,6 +253,20 @@ def test_get_diagnostics_returns_traced_events_when_job_is_tempo_mapped():
     assert body["events"][0]["source_time"] == 0.5
     assert body["events"][0]["measure"] is not None
     assert isinstance(body["events"][0]["quantization_error_seconds"], float)
+
+
+def test_get_diagnostics_uses_beat_anchored_reconstruction():
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}/diagnostics")
+
+    body = response.json()
+    # FakeTranscriber's events are both at time=0.5, exactly FakeBeatDetector's
+    # second beat point - the beat-anchored reconstruction must therefore
+    # round-trip to exactly 0.5s of error, proving the live endpoint is
+    # using beat_anchored_position_to_seconds, not the legacy grid.
+    assert body["events"][0]["quantization_error_seconds"] == pytest.approx(0.0, abs=1e-9)
 
 
 def test_get_diagnostics_returns_409_when_job_not_yet_tempo_mapped():

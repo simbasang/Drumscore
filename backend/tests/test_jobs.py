@@ -134,3 +134,28 @@ def test_delete_is_a_noop_for_an_unknown_job():
     store = JobStore()
 
     store.delete("does-not-exist")
+
+
+from app.timing import BeatPoint
+
+
+def test_job_beats_defaults_to_none():
+    store = JobStore()
+
+    job = store.create(url="https://youtu.be/dQw4w9WgXcQ")
+
+    assert job.beats is None
+
+
+def test_update_can_set_beats():
+    store = JobStore()
+    job = store.create(url="https://youtu.be/dQw4w9WgXcQ")
+    beats = [
+        BeatPoint(source_time=0.0, measure=1, beat=1, is_downbeat=True),
+        BeatPoint(source_time=0.5, measure=1, beat=2, is_downbeat=False),
+    ]
+
+    updated = store.update(job.id, beats=beats)
+
+    assert updated.beats == beats
+    assert store.get(job.id).beats == beats

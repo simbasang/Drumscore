@@ -80,3 +80,40 @@ def test_build_event_diagnostics_does_not_mutate_its_inputs():
 
     assert raw_events == raw_events_before
     assert quantized_events == quantized_events_before
+
+
+from app.beat_mapping import quantize_events_with_beats
+from app.timing import BeatPoint
+
+OFFSET_BEATS = [
+    BeatPoint(source_time=2.5, measure=1, beat=1, is_downbeat=True),
+    BeatPoint(source_time=3.0, measure=1, beat=2, is_downbeat=False),
+    BeatPoint(source_time=3.5, measure=1, beat=3, is_downbeat=False),
+]
+
+
+def test_build_event_diagnostics_uses_beat_anchored_reconstruction_when_beats_are_given():
+    raw_events = [DrumEvent(id="e1", time=2.5, instrument=DrumInstrument.SNARE)]
+    quantized_events = quantize_events_with_beats(raw_events, OFFSET_BEATS)
+
+    diagnostics = build_event_diagnostics(
+        raw_events, quantized_events, tempo_bpm=120.0, beats=OFFSET_BEATS
+    )
+
+    # An event exactly at the first real beat (2.5s) must reconstruct back
+    # to exactly 2.5s via the beat-anchored inverse - the legacy
+    # musical_position_to_seconds(measure=1, beat=1, subdivision=0, bpm=120)
+    # would instead return 0.0s, since it assumes measure 1 beat 1 is at t=0.
+    assert diagnostics[0].quantized_time == pytest.approx(2.5)
+    assert diagnostics[0].quantization_error_seconds == pytest.approx(0.0, abs=1e-9)
+
+
+def test_build_event_diagnostics_falls_back_to_the_legacy_grid_when_beats_is_none():
+    raw_events = [DrumEvent(id="e1", time=0.13, instrument=DrumInstrument.SNARE)]
+    quantized_events = quantize_events(raw_events, bpm=120.0)
+
+    diagnostics = build_event_diagnostics(
+        raw_events, quantized_events, tempo_bpm=120.0, beats=None
+    )
+
+    assert diagnostics[0].quantized_time == pytest.approx(0.125)

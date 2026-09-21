@@ -6,12 +6,14 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.audio_extraction import AudioExtractor
+from app.beat_detection import BeatDetector
 from app.demucs_stem_separator import DemucsStemSeparator
 from app.diagnostics import EventDiagnostic, build_event_diagnostics
 from app.drumscript_transcriber import DrumScriptTranscriber
 from app.job_cleanup import cleanup_old_jobs
 from app.job_processor import PipelineConcurrencyLimiter, run_pipeline
 from app.jobs import Job, JobStatus, JobStore
+from app.librosa_beat_detector import LibrosaBeatDetector
 from app.librosa_tempo_estimator import LibrosaTempoEstimator
 from app.media_source import InvalidSourceUrlError, MediaSourceValidator
 from app.stem_separation import StemSeparator
@@ -31,6 +33,7 @@ _audio_extractor = YtDlpAudioExtractor()
 _stem_separator = DemucsStemSeparator()
 _transcriber = DrumScriptTranscriber()
 _tempo_estimator = LibrosaTempoEstimator()
+_beat_detector = LibrosaBeatDetector()
 _storage_dir = Path(__file__).resolve().parent.parent.parent / "data" / "jobs"
 _pipeline_limiter = PipelineConcurrencyLimiter()
 
@@ -59,6 +62,10 @@ def get_transcriber() -> DrumTranscriber:
 
 def get_tempo_estimator() -> TempoEstimator:
     return _tempo_estimator
+
+
+def get_beat_detector() -> BeatDetector:
+    return _beat_detector
 
 
 def get_storage_dir() -> Path:
@@ -146,6 +153,7 @@ def create_job(
     separator: StemSeparator = Depends(get_stem_separator),
     transcriber: DrumTranscriber = Depends(get_transcriber),
     tempo_estimator: TempoEstimator = Depends(get_tempo_estimator),
+    beat_detector: BeatDetector = Depends(get_beat_detector),
     storage_dir: Path = Depends(get_storage_dir),
     limiter: PipelineConcurrencyLimiter = Depends(get_pipeline_limiter),
 ) -> JobResponse:
@@ -166,6 +174,7 @@ def create_job(
         separator,
         transcriber,
         tempo_estimator,
+        beat_detector,
         storage_dir,
     )
     return JobResponse.from_job(job)
@@ -181,6 +190,7 @@ def retry_job(
     separator: StemSeparator = Depends(get_stem_separator),
     transcriber: DrumTranscriber = Depends(get_transcriber),
     tempo_estimator: TempoEstimator = Depends(get_tempo_estimator),
+    beat_detector: BeatDetector = Depends(get_beat_detector),
     storage_dir: Path = Depends(get_storage_dir),
     limiter: PipelineConcurrencyLimiter = Depends(get_pipeline_limiter),
 ) -> JobResponse:
@@ -207,6 +217,7 @@ def retry_job(
         separator,
         transcriber,
         tempo_estimator,
+        beat_detector,
         storage_dir,
     )
     return JobResponse.from_job(updated)
@@ -363,7 +374,7 @@ def get_job_diagnostics(
             detail=f"Diagnostics not available yet: job status is {job.status.value}",
         )
 
-    diagnostics = build_event_diagnostics(job.raw_events, job.events, job.tempo_bpm)
+    diagnostics = build_event_diagnostics(job.raw_events, job.events, job.tempo_bpm, beats=job.beats)
     return DiagnosticsResponse(
         tempo_bpm=job.tempo_bpm,
         events=[EventDiagnosticResponse.from_diagnostic(d) for d in diagnostics],

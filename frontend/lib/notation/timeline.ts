@@ -4,23 +4,6 @@ export interface TimelinePoint {
   row: number;
 }
 
-const DEFAULT_BEATS_PER_MEASURE = 4;
-const DEFAULT_SUBDIVISIONS_PER_BEAT = 4;
-
-export function computeSlotTimeSeconds(
-  measure: number,
-  beat: number,
-  subdivision: number,
-  bpm: number,
-  beatsPerMeasure: number = DEFAULT_BEATS_PER_MEASURE,
-  subdivisionsPerBeat: number = DEFAULT_SUBDIVISIONS_PER_BEAT,
-): number {
-  const secondsPerBeat = 60 / bpm;
-  const totalBeats =
-    (measure - 1) * beatsPerMeasure + (beat - 1) + subdivision / subdivisionsPerBeat;
-  return totalBeats * secondsPerBeat;
-}
-
 export function interpolatePlayheadX(points: TimelinePoint[], time: number): TimelinePoint | null {
   if (points.length === 0) {
     return null;
@@ -50,10 +33,11 @@ export function interpolatePlayheadX(points: TimelinePoint[], time: number): Tim
         // point's time is reached, then cut straight to it.
         return time >= b.time ? b : { time, x: a.x, row: a.row };
       }
-      // Unreachable while points are sorted by non-decreasing time: any
-      // pair sharing a.time with an earlier point would already have been
-      // matched (and returned) by that earlier bracket first. Guards
-      // against a division by zero if that invariant is ever broken.
+      // Reachable now that points carry real per-event source timestamps:
+      // under the old scalar-BPM formula times were strictly increasing, so
+      // adjacent points could never share an exact time, but two adjacent
+      // slots can legitimately average to the same source time today.
+      // Guards against a division by zero in that case.
       if (b.time === a.time) {
         return a;
       }

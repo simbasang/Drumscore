@@ -4,18 +4,12 @@ import { useEffect, useRef } from "react";
 import { Beam, Formatter, Fraction, Renderer, Stave, Voice } from "vexflow";
 
 import type { AnalysisEvent } from "@/lib/api/jobs";
-import { BEATS_PER_MEASURE, SUBDIVISIONS_PER_BEAT, buildMeasures } from "@/lib/notation/buildScore";
+import { buildMeasures } from "@/lib/notation/buildScore";
 import { buildStaveNote } from "@/lib/notation/buildStaveNote";
-import {
-  computeAutoScrollLeft,
-  computeSlotTimeSeconds,
-  interpolatePlayheadX,
-  type TimelinePoint,
-} from "@/lib/notation/timeline";
+import { computeAutoScrollLeft, interpolatePlayheadX, type TimelinePoint } from "@/lib/notation/timeline";
 
 interface DrumScoreProps {
   events: AnalysisEvent[];
-  tempoBpm: number;
   currentTime?: number;
 }
 
@@ -25,7 +19,11 @@ const ROW_HEIGHT = 120;
 const STAVE_X_START = 10;
 const PLAYHEAD_ID = "drum-score-playhead";
 
-export default function DrumScore({ events, tempoBpm, currentTime }: DrumScoreProps) {
+function averageSourceTime(sourceTimes: number[]): number {
+  return sourceTimes.reduce((sum, time) => sum + time, 0) / sourceTimes.length;
+}
+
+export default function DrumScore({ events, currentTime }: DrumScoreProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<TimelinePoint[]>([]);
 
@@ -84,23 +82,24 @@ export default function DrumScore({ events, tempoBpm, currentTime }: DrumScorePr
       });
       beams.forEach((beam) => beam.setContext(context).draw());
 
-      const measureNumber = index + 1;
       notes.forEach((note, slotIndex) => {
-        const startSixteenth = measure[slotIndex].startSixteenth;
-        const beat = Math.floor(startSixteenth / SUBDIVISIONS_PER_BEAT) + 1;
-        const subdivision = startSixteenth % SUBDIVISIONS_PER_BEAT;
-        const time = computeSlotTimeSeconds(
-          measureNumber,
-          beat,
-          subdivision,
-          tempoBpm,
-          BEATS_PER_MEASURE,
-          SUBDIVISIONS_PER_BEAT,
-        );
-        timelineRef.current.push({ time, x: note.getAbsoluteX(), row });
+        const slot = measure[slotIndex];
+        // Only note slots are anchored to a real source timestamp - rest
+        // slots have no underlying event, so the playhead interpolates
+        // smoothly across them between the nearest real anchors instead of
+        // reconstructing a time from a BPM/grid assumption (see
+        // interpolatePlayheadX in lib/notation/timeline.ts).
+        if (slot.type !== "note") {
+          return;
+        }
+        timelineRef.current.push({
+          time: averageSourceTime(slot.sourceTimes),
+          x: note.getAbsoluteX(),
+          row,
+        });
       });
     });
-  }, [events, tempoBpm]);
+  }, [events]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -113,9 +112,10 @@ export default function DrumScore({ events, tempoBpm, currentTime }: DrumScorePr
       return;
     }
 
-    // Every measure produced by buildMeasures contributes at least one
-    // timeline point, so this is only null when the svg guard above already
-    // returned (no measures rendered); kept as a defensive type narrowing.
+    // point is only null when no note slots exist anywhere in the score (an
+    // all-rest measure contributes zero timeline points, since only note
+    // slots get pushed) - the svg guard above already returns in that case.
+    // Kept as a defensive type narrowing.
     const point = interpolatePlayheadX(timelineRef.current, currentTime);
     if (!point) {
       return;

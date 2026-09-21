@@ -1,7 +1,6 @@
 import { render, screen } from "@testing-library/react";
 
 import type { AnalysisEvent } from "@/lib/api/jobs";
-import { computeSlotTimeSeconds } from "@/lib/notation/timeline";
 import DrumScore from "../DrumScore";
 
 function event(overrides: Partial<AnalysisEvent>): AnalysisEvent {
@@ -20,12 +19,11 @@ describe("DrumScore", () => {
   it("should render an SVG score without throwing for a simple beat", () => {
     render(
       <DrumScore
-        tempoBpm={120}
         events={[
-          event({ id: "1", instrument: "kick", beat: 1, subdivision: 0 }),
-          event({ id: "2", instrument: "hihat_closed", beat: 1, subdivision: 0 }),
-          event({ id: "3", instrument: "snare", beat: 2, subdivision: 0 }),
-          event({ id: "4", instrument: "hihat_open", beat: 3, subdivision: 2 }),
+          event({ id: "1", instrument: "kick", beat: 1, subdivision: 0, time: 0 }),
+          event({ id: "2", instrument: "hihat_closed", beat: 1, subdivision: 0, time: 0 }),
+          event({ id: "3", instrument: "snare", beat: 2, subdivision: 0, time: 0.5 }),
+          event({ id: "4", instrument: "hihat_open", beat: 3, subdivision: 2, time: 1.25 }),
         ]}
       />,
     );
@@ -38,7 +36,7 @@ describe("DrumScore", () => {
   });
 
   it("should render nothing extra for an empty event list", () => {
-    render(<DrumScore tempoBpm={120} events={[]} />);
+    render(<DrumScore events={[]} />);
 
     const container = screen.getByTestId("drum-score");
 
@@ -46,7 +44,7 @@ describe("DrumScore", () => {
   });
 
   it("should not throw when given a currentTime but no events to build a score from", () => {
-    render(<DrumScore tempoBpm={120} events={[]} currentTime={5} />);
+    render(<DrumScore events={[]} currentTime={5} />);
 
     const container = screen.getByTestId("drum-score");
 
@@ -56,10 +54,9 @@ describe("DrumScore", () => {
   it("should force every note's stem upward, including kick and snare", () => {
     render(
       <DrumScore
-        tempoBpm={120}
         events={[
-          event({ id: "1", instrument: "kick", beat: 1, subdivision: 0 }),
-          event({ id: "2", instrument: "snare", beat: 2, subdivision: 0 }),
+          event({ id: "1", instrument: "kick", beat: 1, subdivision: 0, time: 0 }),
+          event({ id: "2", instrument: "snare", beat: 2, subdivision: 0, time: 0.5 }),
         ]}
       />,
     );
@@ -71,36 +68,29 @@ describe("DrumScore", () => {
   });
 
   it("should not draw a playhead line when currentTime is not provided", () => {
-    render(
-      <DrumScore tempoBpm={120} events={[event({ id: "1", beat: 1, subdivision: 0 })]} />,
-    );
+    render(<DrumScore events={[event({ id: "1", beat: 1, subdivision: 0, time: 0 })]} />);
 
     const container = screen.getByTestId("drum-score");
 
     expect(container.querySelector("#drum-score-playhead")).toBeNull();
   });
 
-  it("should draw a playhead line positioned at the current time", () => {
-    const { rerender } = render(
-      <DrumScore
-        tempoBpm={120}
-        currentTime={0}
-        events={[event({ id: "1", beat: 1, subdivision: 0 })]}
-      />,
-    );
+  it("should draw a playhead line positioned at the current time, driven by each event's own source time", () => {
+    const events = [
+      event({ id: "1", beat: 1, subdivision: 0, time: 0 }),
+      event({ id: "2", beat: 3, subdivision: 0, time: 7.3 }),
+    ];
+
+    const { rerender } = render(<DrumScore currentTime={0} events={events} />);
 
     const container = screen.getByTestId("drum-score");
     const lineAtStart = container.querySelector("#drum-score-playhead");
     expect(lineAtStart).not.toBeNull();
     const xAtStart = Number(lineAtStart?.getAttribute("x1"));
 
-    rerender(
-      <DrumScore
-        tempoBpm={120}
-        currentTime={1}
-        events={[event({ id: "1", beat: 1, subdivision: 0 })]}
-      />,
-    );
+    // 7.3s is event 2's own real source time, not anything computeSlotTimeSeconds
+    // would derive from a BPM - this is what "source-linked" means here.
+    rerender(<DrumScore currentTime={7.3} events={events} />);
 
     const lineLater = container.querySelector("#drum-score-playhead");
     const xLater = Number(lineLater?.getAttribute("x1"));
@@ -110,31 +100,31 @@ describe("DrumScore", () => {
 
   it("should auto-scroll the container horizontally to keep the playhead in view", () => {
     const events = [
-      event({ id: "1", measure: 1, beat: 1, subdivision: 0 }),
-      event({ id: "2", measure: 4, beat: 4, subdivision: 3 }),
+      event({ id: "1", measure: 1, beat: 1, subdivision: 0, time: 0 }),
+      event({ id: "2", measure: 4, beat: 4, subdivision: 3, time: 8 }),
     ];
 
-    const { rerender } = render(<DrumScore tempoBpm={120} currentTime={0} events={events} />);
+    const { rerender } = render(<DrumScore currentTime={0} events={events} />);
 
     const container = screen.getByTestId("drum-score");
     Object.defineProperty(container, "clientWidth", { value: 200, configurable: true });
     container.scrollLeft = 0;
 
-    rerender(<DrumScore tempoBpm={120} currentTime={8} events={events} />);
+    rerender(<DrumScore currentTime={8} events={events} />);
 
     expect(container.scrollLeft).toBeGreaterThan(0);
   });
 
   it("should never move the playhead backward in x while stepping through a real multi-row score", () => {
     // MEASURES_PER_ROW is 4, so measure 5 starts a second row.
+    const lastRowZeroTime = 3.95;
+    const firstRowOneTime = 4.2;
     const events = [
-      event({ id: "1", measure: 4, beat: 4, subdivision: 3, instrument: "kick" }),
-      event({ id: "2", measure: 5, beat: 1, subdivision: 0, instrument: "snare" }),
+      event({ id: "1", measure: 4, beat: 4, subdivision: 3, instrument: "kick", time: lastRowZeroTime }),
+      event({ id: "2", measure: 5, beat: 1, subdivision: 0, instrument: "snare", time: firstRowOneTime }),
     ];
-    const lastRowZeroTime = computeSlotTimeSeconds(4, 4, 3, 120);
-    const firstRowOneTime = computeSlotTimeSeconds(5, 1, 0, 120);
 
-    const { rerender } = render(<DrumScore tempoBpm={120} currentTime={0} events={events} />);
+    const { rerender } = render(<DrumScore currentTime={0} events={events} />);
     const container = screen.getByTestId("drum-score");
 
     const sampleTimes = [
@@ -147,7 +137,7 @@ describe("DrumScore", () => {
     let previousX: number | null = null;
     let previousY: number | null = null;
     for (const time of sampleTimes) {
-      rerender(<DrumScore tempoBpm={120} currentTime={time} events={events} />);
+      rerender(<DrumScore currentTime={time} events={events} />);
       const line = container.querySelector("#drum-score-playhead")!;
       const x = Number(line.getAttribute("x1"));
       const y = Number(line.getAttribute("y1"));
@@ -160,10 +150,17 @@ describe("DrumScore", () => {
     }
 
     // Sanity check the boundary was actually exercised across two rows.
-    rerender(<DrumScore tempoBpm={120} currentTime={lastRowZeroTime} events={events} />);
+    rerender(<DrumScore currentTime={lastRowZeroTime} events={events} />);
     const yBeforeBoundary = container.querySelector("#drum-score-playhead")!.getAttribute("y1");
-    rerender(<DrumScore tempoBpm={120} currentTime={firstRowOneTime} events={events} />);
+    rerender(<DrumScore currentTime={firstRowOneTime} events={events} />);
     const yAfterBoundary = container.querySelector("#drum-score-playhead")!.getAttribute("y1");
     expect(yAfterBoundary).not.toBe(yBeforeBoundary);
+  });
+
+  it("should not require a tempoBpm prop", () => {
+    // @ts-expect-error tempoBpm is no longer part of DrumScoreProps
+    render(<DrumScore events={[]} tempoBpm={120} />);
+
+    expect(screen.getByTestId("drum-score")).toBeInTheDocument();
   });
 });

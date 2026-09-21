@@ -4,6 +4,7 @@ import time
 import pytest
 
 from app.audio_extraction import AudioExtractionError
+from app.beat_detection import BeatDetectionError
 from app.job_processor import (
     PipelineConcurrencyLimiter,
     run_audio_extraction,
@@ -16,7 +17,7 @@ from app.jobs import JobStatus, JobStore
 from app.media_source import ParsedSource
 from app.stem_separation import SeparatedStems, StemSeparationError
 from app.tempo_estimation import TempoEstimationError
-from app.timing import TempoPoint
+from app.timing import BeatPoint, TempoPoint
 from app.transcription import DrumEvent, DrumInstrument, TranscriptionError
 
 
@@ -208,12 +209,56 @@ class FakeCrashingTempoEstimator:
         raise RuntimeError("division by zero")
 
 
+class FakeSuccessfulBeatDetector:
+    def detect(self, audio_path):
+        return [
+            BeatPoint(source_time=0.0, measure=1, beat=1, is_downbeat=True),
+            BeatPoint(source_time=0.5, measure=1, beat=2, is_downbeat=False),
+            BeatPoint(source_time=1.0, measure=1, beat=3, is_downbeat=False),
+            BeatPoint(source_time=1.5, measure=1, beat=4, is_downbeat=False),
+        ]
+
+
+class FakeOffsetBeatDetector:
+    """Beats whose first point is NOT at t=0 - the scenario that
+    distinguishes beat-anchored quantization from the legacy t=0 grid."""
+
+    def detect(self, audio_path):
+        return [
+            BeatPoint(source_time=2.5, measure=1, beat=1, is_downbeat=True),
+            BeatPoint(source_time=3.0, measure=1, beat=2, is_downbeat=False),
+            BeatPoint(source_time=3.5, measure=1, beat=3, is_downbeat=False),
+        ]
+
+
+class FakeSingleBeatDetector:
+    def detect(self, audio_path):
+        return [BeatPoint(source_time=0.0, measure=1, beat=1, is_downbeat=True)]
+
+
+class FakeFailingBeatDetector:
+    def detect(self, audio_path):
+        raise BeatDetectionError("no onsets detected")
+
+
+class FakeCrashingBeatDetector:
+    def detect(self, audio_path):
+        raise RuntimeError("native decode failure")
+
+
 def test_run_tempo_mapping_marks_job_tempo_mapped_on_success(tmp_path, source):
     store = JobStore()
     job = store.create(url=source.url)
     events = [DrumEvent(id="e1", time=0.5, instrument=DrumInstrument.KICK)]
 
-    run_tempo_mapping(job.id, tmp_path / "drums.wav", events, store, FakeSuccessfulTempoEstimator())
+    run_tempo_mapping(
+        job.id,
+        tmp_path / "drums.wav",
+        events,
+        store,
+        FakeSuccessfulTempoEstimator(),
+        FakeSuccessfulBeatDetector(),
+    )
 
     updated = store.get(job.id)
     assert updated.status == JobStatus.TEMPO_MAPPED
@@ -227,7 +272,14 @@ def test_run_tempo_mapping_populates_tempo_map_alongside_the_legacy_scalar_bpm(t
     job = store.create(url=source.url)
     events = [DrumEvent(id="e1", time=0.5, instrument=DrumInstrument.KICK)]
 
-    run_tempo_mapping(job.id, tmp_path / "drums.wav", events, store, FakeSuccessfulTempoEstimator())
+    run_tempo_mapping(
+        job.id,
+        tmp_path / "drums.wav",
+        events,
+        store,
+        FakeSuccessfulTempoEstimator(),
+        FakeSuccessfulBeatDetector(),
+    )
 
     updated = store.get(job.id)
     assert updated.tempo_bpm == 120.0
@@ -240,7 +292,14 @@ def test_run_tempo_mapping_marks_job_failed_on_error(tmp_path, source):
     store = JobStore()
     job = store.create(url=source.url)
 
-    run_tempo_mapping(job.id, tmp_path / "drums.wav", [], store, FakeFailingTempoEstimator())
+    run_tempo_mapping(
+        job.id,
+        tmp_path / "drums.wav",
+        [],
+        store,
+        FakeFailingTempoEstimator(),
+        FakeSuccessfulBeatDetector(),
+    )
 
     updated = store.get(job.id)
     assert updated.status == JobStatus.FAILED
@@ -251,11 +310,105 @@ def test_run_tempo_mapping_marks_job_failed_on_unexpected_exception(tmp_path, so
     store = JobStore()
     job = store.create(url=source.url)
 
-    run_tempo_mapping(job.id, tmp_path / "drums.wav", [], store, FakeCrashingTempoEstimator())
+    run_tempo_mapping(
+        job.id,
+        tmp_path / "drums.wav",
+        [],
+        store,
+        FakeCrashingTempoEstimator(),
+        FakeSuccessfulBeatDetector(),
+    )
 
     updated = store.get(job.id)
     assert updated.status == JobStatus.FAILED
     assert "division by zero" in updated.error
+
+
+def test_run_tempo_mapping_quantizes_with_beats_and_stores_them(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+    events = [DrumEvent(id="e1", time=2.5, instrument=DrumInstrument.KICK)]
+
+    run_tempo_mapping(
+        job.id,
+        tmp_path / "drums.wav",
+        events,
+        store,
+        FakeSuccessfulTempoEstimator(),
+        FakeOffsetBeatDetector(),
+    )
+
+    updated = store.get(job.id)
+    assert updated.status == JobStatus.TEMPO_MAPPED
+    assert updated.beats == FakeOffsetBeatDetector().detect(None)
+    # The whole point of beat-anchoring: an event exactly at the first real
+    # beat's time (2.5s, not 0s) quantizes to beat 1 - the legacy t=0 grid
+    # would instead have placed 2.5s deep into several earlier measures.
+    assert updated.events[0].measure == 1
+    assert updated.events[0].beat == 1
+    assert updated.events[0].subdivision == 0
+    assert updated.events[0].time == 2.5
+
+
+def test_run_tempo_mapping_falls_back_to_the_legacy_grid_when_beat_detection_fails(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+    events = [DrumEvent(id="e1", time=0.5, instrument=DrumInstrument.KICK)]
+
+    run_tempo_mapping(
+        job.id,
+        tmp_path / "drums.wav",
+        events,
+        store,
+        FakeSuccessfulTempoEstimator(),
+        FakeFailingBeatDetector(),
+    )
+
+    updated = store.get(job.id)
+    assert updated.status == JobStatus.TEMPO_MAPPED
+    assert updated.beats is None
+    # 0.5s at the fallback 120bpm constant grid -> beat 2, matching
+    # quantize_events(events, bpm=120.0) exactly.
+    assert updated.events[0].beat == 2
+
+
+def test_run_tempo_mapping_falls_back_to_the_legacy_grid_with_fewer_than_two_beats(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+    events = [DrumEvent(id="e1", time=0.5, instrument=DrumInstrument.KICK)]
+
+    run_tempo_mapping(
+        job.id,
+        tmp_path / "drums.wav",
+        events,
+        store,
+        FakeSuccessfulTempoEstimator(),
+        FakeSingleBeatDetector(),
+    )
+
+    updated = store.get(job.id)
+    assert updated.status == JobStatus.TEMPO_MAPPED
+    assert updated.beats is None
+    assert updated.events[0].beat == 2
+
+
+def test_run_tempo_mapping_marks_job_failed_on_unexpected_beat_detector_exception(tmp_path, source):
+    store = JobStore()
+    job = store.create(url=source.url)
+    events = [DrumEvent(id="e1", time=0.5, instrument=DrumInstrument.KICK)]
+
+    run_tempo_mapping(
+        job.id,
+        tmp_path / "drums.wav",
+        events,
+        store,
+        FakeSuccessfulTempoEstimator(),
+        FakeCrashingBeatDetector(),
+    )
+
+    updated = store.get(job.id)
+    assert updated.status == JobStatus.FAILED
+    assert "native decode failure" in updated.error
 
 
 def test_run_transcription_stores_raw_events_alongside_events(tmp_path, source):
@@ -275,7 +428,12 @@ def test_run_tempo_mapping_does_not_modify_raw_events(tmp_path, source):
     store.update(job.id, raw_events=raw_events)
 
     run_tempo_mapping(
-        job.id, tmp_path / "drums.wav", raw_events, store, FakeSuccessfulTempoEstimator()
+        job.id,
+        tmp_path / "drums.wav",
+        raw_events,
+        store,
+        FakeSuccessfulTempoEstimator(),
+        FakeSuccessfulBeatDetector(),
     )
 
     updated = store.get(job.id)
@@ -296,6 +454,7 @@ def test_run_pipeline_preserves_raw_events_separately_from_quantized_events(tmp_
         FakeSuccessfulSeparator(),
         FakeSuccessfulTranscriber(),
         FakeSuccessfulTempoEstimator(),
+        FakeSuccessfulBeatDetector(),
         tmp_path,
     )
 
@@ -317,6 +476,7 @@ def test_run_pipeline_runs_all_four_steps_on_success(tmp_path, source):
         FakeSuccessfulSeparator(),
         FakeSuccessfulTranscriber(),
         FakeSuccessfulTempoEstimator(),
+        FakeSuccessfulBeatDetector(),
         tmp_path,
     )
 
@@ -347,6 +507,7 @@ def test_run_pipeline_stops_before_separation_when_extraction_fails(tmp_path, so
         SpySeparator(),
         FakeSuccessfulTranscriber(),
         FakeSuccessfulTempoEstimator(),
+        FakeSuccessfulBeatDetector(),
         tmp_path,
     )
 
@@ -375,6 +536,7 @@ def test_run_pipeline_stops_before_transcription_when_separation_fails(tmp_path,
         FakeFailingSeparator(),
         SpyTranscriber(),
         FakeSuccessfulTempoEstimator(),
+        FakeSuccessfulBeatDetector(),
         tmp_path,
     )
 
@@ -403,6 +565,7 @@ def test_run_pipeline_stops_before_tempo_mapping_when_transcription_fails(tmp_pa
         FakeSuccessfulSeparator(),
         FakeFailingTranscriber(),
         SpyTempoEstimator(),
+        FakeSuccessfulBeatDetector(),
         tmp_path,
     )
 
@@ -433,6 +596,7 @@ def test_run_pipeline_resumes_from_stem_separation_when_audio_already_downloaded
         FakeSuccessfulSeparator(),
         FakeSuccessfulTranscriber(),
         FakeSuccessfulTempoEstimator(),
+        FakeSuccessfulBeatDetector(),
         tmp_path,
     )
 
@@ -472,6 +636,7 @@ def test_run_pipeline_resumes_from_transcription_when_stems_already_separated(tm
         SpySeparator(),
         FakeSuccessfulTranscriber(),
         FakeSuccessfulTempoEstimator(),
+        FakeSuccessfulBeatDetector(),
         tmp_path,
     )
 
@@ -508,6 +673,7 @@ def test_run_pipeline_resumes_from_tempo_mapping_when_events_already_transcribed
         FakeSuccessfulSeparator(),
         SpyTranscriber(),
         FakeSuccessfulTempoEstimator(),
+        FakeSuccessfulBeatDetector(),
         tmp_path,
     )
 

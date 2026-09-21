@@ -39,7 +39,6 @@ describe("Player", () => {
         apiBaseUrl="http://localhost:8000"
         jobId="job-1"
         events={[]}
-        tempoBpm={120}
         createAudioContext={fakeContextFactory}
       />,
     );
@@ -62,7 +61,6 @@ describe("Player", () => {
         apiBaseUrl="http://localhost:8000"
         jobId="job-1"
         events={[]}
-        tempoBpm={120}
         createAudioContext={fakeContextFactory}
       />,
     );
@@ -89,7 +87,6 @@ describe("Player", () => {
         apiBaseUrl="http://localhost:8000"
         jobId="job-1"
         events={[]}
-        tempoBpm={120}
         createAudioContext={fakeContextFactory}
       />,
     );
@@ -116,7 +113,6 @@ describe("Player", () => {
         apiBaseUrl="http://localhost:8000"
         jobId="job-1"
         events={[]}
-        tempoBpm={120}
         createAudioContext={() => fakeContext as never}
       />,
     );
@@ -133,7 +129,6 @@ describe("Player", () => {
         apiBaseUrl="http://localhost:8000"
         jobId="job-1"
         events={[]}
-        tempoBpm={120}
         createAudioContext={fakeContextFactory}
       />,
     );
@@ -153,7 +148,6 @@ describe("Player", () => {
         apiBaseUrl="http://localhost:8000"
         jobId="job-1"
         events={[]}
-        tempoBpm={120}
         createAudioContext={fakeContextFactory}
       />,
     );
@@ -173,7 +167,6 @@ describe("Player", () => {
         apiBaseUrl="http://localhost:8000"
         jobId="job-1"
         events={[]}
-        tempoBpm={120}
         createAudioContext={fakeContextFactory}
       />,
     );
@@ -194,7 +187,6 @@ describe("Player", () => {
         apiBaseUrl="http://localhost:8000"
         jobId="job-1"
         events={[]}
-        tempoBpm={120}
         createAudioContext={fakeContextFactory}
       />,
     );
@@ -222,7 +214,6 @@ describe("Player", () => {
         apiBaseUrl="http://localhost:8000"
         jobId="job-1"
         events={[]}
-        tempoBpm={120}
         createAudioContext={fakeContextFactory}
       />,
     );
@@ -248,7 +239,6 @@ describe("Player", () => {
         apiBaseUrl="http://localhost:8000"
         jobId="job-1"
         events={[]}
-        tempoBpm={120}
         createAudioContext={fakeContextFactory}
       />,
     );
@@ -267,7 +257,6 @@ describe("Player", () => {
         apiBaseUrl="http://localhost:8000"
         jobId="job-1"
         events={[]}
-        tempoBpm={120}
         createAudioContext={fakeContextFactory}
       />,
     );
@@ -286,7 +275,6 @@ describe("Player", () => {
         apiBaseUrl="http://localhost:8000"
         jobId="job-1"
         events={[]}
-        tempoBpm={120}
         createAudioContext={fakeContextFactory}
       />,
     );

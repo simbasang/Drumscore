@@ -165,7 +165,6 @@ export default function JobForm({ apiBaseUrl }: JobFormProps) {
           apiBaseUrl={apiBaseUrl}
           jobId={job.id}
           events={analysis.events}
-          tempoBpm={analysis.tempo_bpm}
         />
       )}
     </div>

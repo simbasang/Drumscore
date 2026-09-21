@@ -17,7 +17,6 @@ interface PlayerProps {
   apiBaseUrl: string;
   jobId: string;
   events: AnalysisEvent[];
-  tempoBpm: number;
   createAudioContext?: () => DecodableAudioContext;
 }
 
@@ -41,7 +40,6 @@ export default function Player({
   apiBaseUrl,
   jobId,
   events,
-  tempoBpm,
   createAudioContext = defaultCreateAudioContext,
 }: PlayerProps) {
   const [status, setStatus] = useState<LoadStatus>("loading");
@@ -210,7 +208,7 @@ export default function Player({
           />
         </label>
       </div>
-      <DrumScore events={events} tempoBpm={tempoBpm} currentTime={currentTime} />
+      <DrumScore events={events} currentTime={currentTime} />
     </div>
   );
 }

@@ -1,22 +1,4 @@
-import {
-  computeAutoScrollLeft,
-  computeSlotTimeSeconds,
-  interpolatePlayheadX,
-  type TimelinePoint,
-} from "../timeline";
-
-describe("computeSlotTimeSeconds", () => {
-  it.each([
-    [1, 1, 0, 0.0],
-    [1, 1, 1, 0.125],
-    [1, 2, 0, 0.5],
-    [1, 4, 0, 1.5],
-    [2, 1, 0, 2.0],
-    [2, 1, 1, 2.125],
-  ])("measure %i beat %i subdivision %i at 120bpm -> %fs", (measure, beat, subdivision, expected) => {
-    expect(computeSlotTimeSeconds(measure, beat, subdivision, 120)).toBeCloseTo(expected, 6);
-  });
-});
+import { computeAutoScrollLeft, interpolatePlayheadX, type TimelinePoint } from "../timeline";
 
 describe("interpolatePlayheadX", () => {
   const points: TimelinePoint[] = [

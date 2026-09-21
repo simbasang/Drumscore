@@ -90,6 +90,39 @@ def test_estimate_leaves_tempo_unchanged_when_no_onsets_are_detected(tmp_path):
     assert bpm == pytest.approx(120.0)
 
 
+def test_estimate_corrects_a_1_5x_error_when_beat_tracker_reports_the_compound_pulse(tmp_path):
+    # A classic simple-vs-compound pulse-level ambiguity: the beat tracker
+    # locks onto 2/3 of the true tempo (TECHNICAL_DEBT.md's 123-vs-184.6
+    # case is this same ratio: 123 * 1.5 ~= 184.6).
+    audio_path = tmp_path / "clicks.wav"
+    _write_click_track(audio_path, bpm=180.0)
+    true_period = 60.0 / 180.0
+    onset_times = np.arange(0, 8.0, true_period)
+
+    with (
+        patch("app.librosa_tempo_estimator.librosa.beat.beat_track", return_value=(120.0, None)),
+        patch("app.librosa_tempo_estimator.librosa.onset.onset_detect", return_value=onset_times),
+    ):
+        bpm = LibrosaTempoEstimator().estimate(audio_path)
+
+    assert bpm == pytest.approx(180.0, abs=1.0)
+
+
+def test_estimate_corrects_a_1_5x_error_when_beat_tracker_reports_the_simple_pulse(tmp_path):
+    audio_path = tmp_path / "clicks.wav"
+    _write_click_track(audio_path, bpm=120.0)
+    true_period = 60.0 / 120.0
+    onset_times = np.arange(0, 8.0, true_period)
+
+    with (
+        patch("app.librosa_tempo_estimator.librosa.beat.beat_track", return_value=(180.0, None)),
+        patch("app.librosa_tempo_estimator.librosa.onset.onset_detect", return_value=onset_times),
+    ):
+        bpm = LibrosaTempoEstimator().estimate(audio_path)
+
+    assert bpm == pytest.approx(120.0, abs=1.0)
+
+
 def test_estimate_raises_on_invalid_audio_file(tmp_path):
     bad_path = tmp_path / "not_audio.wav"
     bad_path.write_bytes(b"not a real wav file")

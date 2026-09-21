@@ -67,8 +67,11 @@ class TempoMap:
 
     @classmethod
     def constant(cls, bpm: float) -> "TempoMap":
-        """A single-point TempoMap anchored at t=0 - the bridge
-        representation for the legacy scalar-BPM pipeline, used until real
+        """A single-point TempoMap holding one estimated tempo value for
+        the whole song - informational display/diagnostics metadata only.
+        Quantization never reads this; it always uses detected beat anchors
+        (see app.beat_mapping.quantize_events_with_beats). Real
         tempo-change detection (TECHNICAL_DEBT.md, "Tempo estimation
-        disagrees with DrumScript's own estimate") replaces it."""
+        disagrees with DrumScript's own estimate") would replace this with
+        a true multi-point TempoMap."""
         return cls(points=(TempoPoint(source_time=0.0, bpm=bpm),))

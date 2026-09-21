@@ -5,12 +5,12 @@ from typing import Callable
 
 from app.audio_extraction import AudioExtractionError, AudioExtractor
 from app.beat_detection import BeatDetectionError, BeatDetector
-from app.beat_mapping import quantize_events, quantize_events_with_beats
+from app.beat_mapping import quantize_events_with_beats
 from app.jobs import JobStatus, JobStore
 from app.media_source import ParsedSource
 from app.stem_separation import StemSeparationError, StemSeparator
 from app.tempo_estimation import TempoEstimationError, TempoEstimator
-from app.timing import BeatPoint, TempoMap
+from app.timing import TempoMap
 from app.transcription import DrumEvent, DrumTranscriber, TranscriptionError
 
 DEFAULT_MAX_CONCURRENT_PIPELINE_JOBS = 2
@@ -118,35 +118,30 @@ def run_tempo_mapping(
         store.update(job_id, status=JobStatus.FAILED, error=f"Unexpected error: {error}")
         return
 
-    beats: list[BeatPoint] | None = None
     try:
-        detected_beats = beat_detector.detect(drums_path)
-        if len(detected_beats) >= 2:
-            beats = detected_beats
-    except BeatDetectionError:
-        # A known, expected failure mode (e.g. no onsets detected on very
-        # quiet/short audio) - fall back to the constant-grid path below
-        # rather than failing the whole job, matching the "introduce beside,
-        # migrate consumers" pattern in docs/ARCHITECTURE_V1.md's Migration
-        # section. Full removal of this fallback is #44/V1-011's job.
-        beats = None
+        beats = beat_detector.detect(drums_path)
+    except BeatDetectionError as error:
+        store.update(job_id, status=JobStatus.FAILED, error=str(error))
+        return
     except Exception as error:  # noqa: BLE001 - guarantee the job reaches a terminal state
         store.update(job_id, status=JobStatus.FAILED, error=f"Unexpected error: {error}")
         return
 
-    quantized_events = (
-        quantize_events_with_beats(events, beats)
-        if beats is not None
-        else quantize_events(events, bpm)
-    )
+    if len(beats) < 2:
+        store.update(
+            job_id,
+            status=JobStatus.FAILED,
+            error=f"Beat detection found only {len(beats)} beat(s); tempo mapping requires at least 2",
+        )
+        return
+
+    quantized_events = quantize_events_with_beats(events, beats)
 
     # quantize_events_with_beats legitimately produces measure <= 0 for events
     # before the first detected beat point (extrapolated via plain integer
     # arithmetic - documented, unit-tested behavior). The frontend's
     # buildMeasures is 1-based and silently drops any such event, so floor the
-    # numbering at 1 with a uniform shift, which preserves relative spacing
-    # and is a no-op for the legacy constant-grid path (event.time >= 0 always
-    # keeps its measures >= 1).
+    # numbering at 1 with a uniform shift, which preserves relative spacing.
     if quantized_events:
         min_measure = min(event.measure for event in quantized_events)
         if min_measure < 1:

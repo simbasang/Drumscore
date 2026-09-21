@@ -243,3 +243,123 @@ first hiccup.
 polling failures before giving up, showing a "Lost connection,
 retrying..." message in between; a subsequent success clears it and
 resumes normal status updates.
+
+---
+
+## Quantization grid isn't phase-aligned to the beat
+
+**Found in:** Manual testing, 2026-09-20 (generated notation doesn't hold
+4/4 structure, doesn't read as a coherent groove). Full analysis in
+`docs/status/2026-09-20-current-app-state.md`, section 4.
+
+`beat_mapping.py`'s `quantize_events()` assumes measure 1 / beat 1 starts
+exactly at `event.time = 0` (the very start of the audio) and snaps every
+event to the nearest 16th-note position on a constant-tempo grid anchored
+there. Real recordings almost never have their first downbeat exactly at
+t=0 — there's usually silence or a pickup before it. If the grid's phase
+is off, even a perfectly, metronomically played drum part gets quantized
+incorrectly, because the grid itself isn't aligned with the music. Not
+confirmed as THE cause of the messy notation in the reported screenshot,
+but a strong candidate — not previously logged anywhere.
+
+**Fix would involve:** detecting the actual first strong onset (or reusing
+an onset-detection pass already available via `librosa.onset.onset_detect`
+in `librosa_tempo_estimator.py`) and using it as the grid's phase offset
+instead of assuming t=0, before quantizing in `quantize_events()`.
+
+---
+
+## Notation never consolidates note durations — every hit renders as a 16th note
+
+**Found in:** Manual testing, 2026-09-20 (notation looks denser/busier
+than reference examples). Full analysis in
+`docs/status/2026-09-20-current-app-state.md`, section 3.
+
+`buildScore.ts`'s `consolidateRests` merges runs of empty 16th-note slots
+into larger rest values (resolved in MVP-011, see above), but there's no
+equivalent for notes: `buildNoteSpec` always hard-codes
+`duration: "16"` for a hit, regardless of whether the underlying rhythm
+would idiomatically read as quarter or eighth notes. Combined with the
+phase/grid issue above, this makes the rendered score look busier than
+the reference examples the user provided, which use coarser note values
+where the actual rhythm is sparser.
+
+**Fix would involve:** a note-duration consolidation pass symmetric to
+`consolidateRests`, merging consecutive same-instrument (or same-slot-set)
+hits into the largest note value the beat grid allows, before building
+`StaveNote`s.
+
+---
+
+## Open hi-hat notated via articulation, not a ring notehead
+
+**Found in:** Manual testing, 2026-09-20 — user-provided reference
+notation (see `docs/status/2026-09-20-current-app-state.md`, section 3)
+marks open hi-hat with a circle/ring around the notehead, a common drum-
+notation convention. `instrumentNotation.ts` instead uses the same
+notehead as closed hi-hat (`g/5/x2`) plus a VexFlow articulation
+(`"ah"`) drawn above the note. Both are visually distinguishable per
+PROJECT.md §6's literal requirement, but don't match the reference style,
+and the articulation glyph may be contributing to the "very cluttered"
+look reported if it's rendering above notes more often than expected.
+
+**Fix would involve:** checking whether VexFlow supports a circled-notehead
+modifier (rather than an articulation) for open hi-hat, and switching to
+it if so, for a closer match to standard drum-notation convention.
+
+---
+
+## Playhead position uses a constant-tempo approximation instead of the real audio clock
+
+**Found in:** Manual testing, 2026-09-20 (playhead jumps back and forth
+unevenly during playback rather than advancing steadily). Full analysis
+in `docs/status/2026-09-20-current-app-state.md`, section 6.
+
+`SyncedPlayer.getCurrentTime()` itself is correctly built per PROJECT.md's
+"audio clock is the source of truth" rule — it always derives from
+`AudioContext.currentTime`. But `DrumScore.tsx` places the playhead by
+building a `TimelinePoint[]` list where each point's `time` comes from
+`computeSlotTimeSeconds(measure, beat, subdivision, tempoBpm, ...)` — a
+constant-tempo formula, decoupled from the real per-event audio
+timestamps. Every animation frame, the real audio time is looked up
+against this constant-tempo-approximated list via `interpolatePlayheadX`.
+If the song's real tempo isn't perfectly constant, or the quantization
+grid is phase-shifted (see above), the real time and the approximated
+grid time drift apart as the song plays, which could produce exactly this
+symptom — especially visible across row breaks, where a small timing
+error produces a large visual jump in x/y.
+
+**Not confirmed** — this is a code-reading hypothesis, not verified with
+a live repro/instrumentation yet. An alternate, not-yet-ruled-out
+possibility: if the `events` prop passed into `DrumScore` doesn't have a
+stable reference across re-renders, the whole score (and its
+`timelineRef`) could be getting rebuilt on every tick during playback,
+which would also look like the playhead jumping.
+
+**Fix would involve:** first, a live repro with instrumentation
+(systematic-debugging) to confirm which of the two hypotheses above is
+the actual cause, before changing anything. If it's the constant-tempo
+mismatch, the fix likely means deriving playhead position from the
+original `event.time` values (already preserved on each `DrumEvent`)
+instead of re-deriving time from the quantized measure/beat/subdivision
+and a single BPM.
+
+---
+
+## Unconfirmed `AbortError: The operation was aborted.` during manual testing
+
+**Found in:** Manual testing, 2026-09-20, shown in the Next.js dev error
+overlay while loading a job's audio. Full analysis in
+`docs/status/2026-09-20-current-app-state.md`, section 7.
+
+A grep across the entire frontend codebase shows zero uses of
+`AbortController`/`AbortSignal` — the app never aborts a fetch itself.
+The error most likely originates from the dev environment (e.g. Turbopack
+Fast Refresh/HMR cancelling an in-flight request while one of the two
+~45MB audio fetches is still loading) rather than from application code,
+but this is **not confirmed**.
+
+**Fix would involve:** first reproducing with the full browser console
+stack trace and exact repro steps (what was happening right before the
+error) to determine whether this is a real production-path bug or a
+dev-only artifact, before deciding on a fix.

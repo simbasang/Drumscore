@@ -411,6 +411,66 @@ def test_run_tempo_mapping_marks_job_failed_on_unexpected_beat_detector_exceptio
     assert "native decode failure" in updated.error
 
 
+def test_run_tempo_mapping_normalizes_measures_so_pre_first_beat_events_are_not_dropped(
+    tmp_path, source
+):
+    store = JobStore()
+    job = store.create(url=source.url)
+    # e1 (0.5s) and e2 (3.0s) both precede or straddle the first detected
+    # beat (2.5s). Quantized against FakeOffsetBeatDetector's beats without
+    # normalization, e1 would land at measure 0 and e2 at measure 1 - the
+    # frontend's 1-based buildMeasures would silently drop e1. A uniform
+    # +1 shift should make every measure >= 1 while preserving the exact
+    # 1-measure/1-beat spacing between them (absolute beat index -4 -> 1).
+    events = [
+        DrumEvent(id="e1", time=0.5, instrument=DrumInstrument.KICK),
+        DrumEvent(id="e2", time=3.0, instrument=DrumInstrument.SNARE),
+    ]
+
+    run_tempo_mapping(
+        job.id,
+        tmp_path / "drums.wav",
+        events,
+        store,
+        FakeSuccessfulTempoEstimator(),
+        FakeOffsetBeatDetector(),
+    )
+
+    updated = store.get(job.id)
+    assert updated.status == JobStatus.TEMPO_MAPPED
+    e1, e2 = updated.events
+    assert e1.measure >= 1
+    assert e2.measure >= 1
+    assert e1.measure == 1
+    assert e1.beat == 1
+    assert e1.subdivision == 0
+    assert e2.measure == 2
+    assert e2.beat == 2
+    assert e2.subdivision == 0
+
+
+def test_run_tempo_mapping_does_not_shift_measures_when_all_are_already_at_least_one(
+    tmp_path, source
+):
+    store = JobStore()
+    job = store.create(url=source.url)
+    events = [DrumEvent(id="e1", time=0.5, instrument=DrumInstrument.KICK)]
+
+    run_tempo_mapping(
+        job.id,
+        tmp_path / "drums.wav",
+        events,
+        store,
+        FakeSuccessfulTempoEstimator(),
+        FakeSuccessfulBeatDetector(),
+    )
+
+    updated = store.get(job.id)
+    assert updated.status == JobStatus.TEMPO_MAPPED
+    assert updated.events[0].measure == 1
+    assert updated.events[0].beat == 2
+
+
 def test_run_transcription_stores_raw_events_alongside_events(tmp_path, source):
     store = JobStore()
     job = store.create(url=source.url)

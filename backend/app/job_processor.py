@@ -1,3 +1,4 @@
+import dataclasses
 import threading
 from pathlib import Path
 from typing import Callable
@@ -138,6 +139,22 @@ def run_tempo_mapping(
         if beats is not None
         else quantize_events(events, bpm)
     )
+
+    # quantize_events_with_beats legitimately produces measure <= 0 for events
+    # before the first detected beat point (extrapolated via plain integer
+    # arithmetic - documented, unit-tested behavior). The frontend's
+    # buildMeasures is 1-based and silently drops any such event, so floor the
+    # numbering at 1 with a uniform shift, which preserves relative spacing
+    # and is a no-op for the legacy constant-grid path (event.time >= 0 always
+    # keeps its measures >= 1).
+    if quantized_events:
+        min_measure = min(event.measure for event in quantized_events)
+        if min_measure < 1:
+            shift = 1 - min_measure
+            quantized_events = [
+                dataclasses.replace(event, measure=event.measure + shift)
+                for event in quantized_events
+            ]
 
     store.update(
         job_id,

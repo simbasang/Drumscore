@@ -33,10 +33,11 @@ export function interpolatePlayheadX(points: TimelinePoint[], time: number): Tim
         // point's time is reached, then cut straight to it.
         return time >= b.time ? b : { time, x: a.x, row: a.row };
       }
-      // Unreachable while points are sorted by non-decreasing time: any
-      // pair sharing a.time with an earlier point would already have been
-      // matched (and returned) by that earlier bracket first. Guards
-      // against a division by zero if that invariant is ever broken.
+      // Reachable now that points carry real per-event source timestamps:
+      // under the old scalar-BPM formula times were strictly increasing, so
+      // adjacent points could never share an exact time, but two adjacent
+      // slots can legitimately average to the same source time today.
+      // Guards against a division by zero in that case.
       if (b.time === a.time) {
         return a;
       }

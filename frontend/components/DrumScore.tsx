@@ -112,9 +112,10 @@ export default function DrumScore({ events, currentTime }: DrumScoreProps) {
       return;
     }
 
-    // Every measure produced by buildMeasures contributes at least one
-    // timeline point, so this is only null when the svg guard above already
-    // returned (no measures rendered); kept as a defensive type narrowing.
+    // point is only null when no note slots exist anywhere in the score (an
+    // all-rest measure contributes zero timeline points, since only note
+    // slots get pushed) - the svg guard above already returns in that case.
+    // Kept as a defensive type narrowing.
     const point = interpolatePlayheadX(timelineRef.current, currentTime);
     if (!point) {
       return;

@@ -37,6 +37,8 @@ export interface AnalysisEvent {
   id: string;
   time: number;
   instrument: DrumInstrument;
+  confidence: number | null;
+  provenance: string | null;
   measure: number | null;
   beat: number | null;
   subdivision: number | null;

@@ -8,6 +8,8 @@ function event(overrides: Partial<AnalysisEvent>): AnalysisEvent {
     id: "e",
     time: 0,
     instrument: "kick",
+    confidence: null,
+    provenance: "drumscript",
     measure: 1,
     beat: 1,
     subdivision: 0,

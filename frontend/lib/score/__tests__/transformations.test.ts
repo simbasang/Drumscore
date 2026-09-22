@@ -110,3 +110,29 @@ describe("source link preservation", () => {
     expect(hitsAt(updated, 1, 2, 0)[0]).toEqual(untouched);
   });
 });
+
+describe("duration consolidation after edits", () => {
+  it("should extend a note's duration after deleting a hit that used to split it from trailing rests", () => {
+    const score = fromAnalysisEvents([
+      event({ id: "a", instrument: "kick", beat: 1, subdivision: 0 }),
+      event({ id: "b", instrument: "snare", beat: 1, subdivision: 1 }),
+    ]);
+    const snareHitId = hitsAt(score, 1, 1, 1)[0].id;
+
+    const updated = deleteHit(score, snareHitId);
+
+    const kickSlot = updated.measures[0].find((s) => s.position.beat === 1 && s.position.subdivision === 0);
+    expect(kickSlot).toMatchObject({ type: "note", duration: "1" });
+  });
+
+  it("should give a newly-added hit a consolidated duration when it fills the rest of the measure", () => {
+    const seeded = fromAnalysisEvents([event({ id: "seed", instrument: "kick", beat: 1, subdivision: 0 })]);
+    const seedHitId = hitsAt(seeded, 1, 1, 0)[0].id;
+    const empty = deleteHit(seeded, seedHitId);
+
+    const updated = addHit(empty, { measure: 1, beat: 1, subdivision: 0 }, "kick");
+
+    const slot = updated.measures[0].find((s) => s.position.beat === 1 && s.position.subdivision === 0);
+    expect(slot).toMatchObject({ type: "note", duration: "1" });
+  });
+});

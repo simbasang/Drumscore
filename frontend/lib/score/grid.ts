@@ -6,9 +6,11 @@ export const SUBDIVISIONS_PER_BEAT = 4;
 export const SLOT_DURATION = "16";
 const SLOTS_PER_MEASURE = BEATS_PER_MEASURE * SUBDIVISIONS_PER_BEAT;
 
-// Largest-to-smallest so consolidateRests always prefers the longest valid
-// rest value, ordered with their duration in sixteenth-note units.
-const REST_SIZES_SIXTEENTHS: { duration: string; sixteenths: number }[] = [
+// Largest-to-smallest so both consolidateRests and consolidateDurations always
+// prefer the longest valid value, ordered with their duration in sixteenth-note
+// units. Shared between rests and notes: the same "must start on a position
+// that's a multiple of its own length" alignment rule applies to both.
+const DURATION_SIZES_SIXTEENTHS: { duration: string; sixteenths: number }[] = [
   { duration: "1", sixteenths: 16 },
   { duration: "2", sixteenths: 8 },
   { duration: "4", sixteenths: 4 },
@@ -56,7 +58,7 @@ export function consolidateRests(slots: Slot[]): Slot[] {
       // The smallest entry (a 16th rest, 1 sixteenth long) always matches
       // here, since sixteenthIndex % 1 is always 0 - .find() can never fall
       // through without a match while remaining > 0.
-      const size = REST_SIZES_SIXTEENTHS.find(
+      const size = DURATION_SIZES_SIXTEENTHS.find(
         ({ sixteenths }) => sixteenths <= remaining && sixteenthIndex % sixteenths === 0,
       )!;
       result.push({
@@ -75,18 +77,64 @@ export function consolidateRests(slots: Slot[]): Slot[] {
   return result;
 }
 
-// Expands an already-consolidated measure back to one slot per sixteenth,
-// so a transformation can edit a single slot before re-consolidating. Every
-// note in `measure` occupies exactly one sixteenth (durations aren't
-// consolidated across notes yet - that's V1-018/#51), so this only needs to
-// place each note at its own index and fill every other index with a fresh
-// single-sixteenth rest; existing rest slots in `measure` are discarded and
-// rebuilt, since consolidateRests will regenerate them anyway.
+// Extends each note to absorb as many of its immediately-following rest slots
+// as the alignment rule allows (same rule consolidateRests uses for rests: a
+// candidate duration may only start on a position that's a multiple of its own
+// length), then runs consolidateRests on whatever rests are left over. This is
+// how "durations derived from occupied rhythmic positions" (V1-018/#51) works:
+// a note's rendered duration is the gap to the next occupied position (or end
+// of measure), quantized down to the largest metrically-valid value - not a
+// fixed sixteenth. Input must be a fully-expanded measure - one single-sixteenth
+// slot per index, as produced by fromAnalysisEvents's raw grid or expandMeasure;
+// feeding it an already-consolidated measure will silently misinterpret
+// array-entry counts as sixteenth counts
+export function consolidateDurations(slots: Slot[]): Slot[] {
+  return consolidateRests(extendNoteDurations(slots));
+}
+
+function extendNoteDurations(slots: Slot[]): Slot[] {
+  const result: Slot[] = [];
+  let i = 0;
+
+  while (i < slots.length) {
+    const slot = slots[i];
+    if (slot.type !== "note") {
+      result.push(slot);
+      i++;
+      continue;
+    }
+
+    let restRun = 0;
+    while (i + 1 + restRun < slots.length && slots[i + 1 + restRun].type === "rest") {
+      restRun++;
+    }
+
+    const sixteenthIndex = toSixteenthIndex(slot.position);
+    const capacity = 1 + restRun;
+    // The smallest entry (1 sixteenth) always matches, since sixteenthIndex % 1
+    // is always 0 and capacity is always >= 1 - .find() can never fall through.
+    const size = DURATION_SIZES_SIXTEENTHS.find(
+      ({ sixteenths }) => sixteenths <= capacity && sixteenthIndex % sixteenths === 0,
+    )!;
+
+    result.push({ ...slot, duration: size.duration });
+    i += size.sixteenths;
+  }
+
+  return result;
+}
+
+// Expands an already-consolidated measure back to one slot per sixteenth, so
+// a transformation can edit a single slot before re-consolidating. Every note
+// is reset to a single-sixteenth duration at its own index here - any longer
+// duration it had (from consolidateDurations) only reflects trailing rests
+// that get freshly rebuilt below, so keeping the old duration would
+// double-count that span once notes can be longer than one sixteenth.
 export function expandMeasure(measure: Measure, measureNumber: number): Slot[] {
   const bySixteenthIndex = new Map<number, Slot>();
   for (const slot of measure) {
     if (slot.type === "note") {
-      bySixteenthIndex.set(toSixteenthIndex(slot.position), slot);
+      bySixteenthIndex.set(toSixteenthIndex(slot.position), { ...slot, duration: SLOT_DURATION });
     }
   }
 

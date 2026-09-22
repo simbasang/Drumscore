@@ -383,3 +383,59 @@ with real transients.
 #45/#46's acceptance criteria (repeatable, labelled, documented tolerance,
 multiple groove styles); this entry exists so a future reader doesn't
 misread the low absolute F1 number as a DrumScript quality problem.
+
+---
+
+## `insertHit` cannot create a new measure
+
+**Found in:** V1-018 (#51)
+
+`insertHit` (`frontend/lib/score/transformations.ts`, used by both `addHit`
+and `moveHit`) only `.map()`s over the *existing* `score.measures` array -
+it never grows the array. It matches each existing measure by index against
+`position.measure` and leaves every non-matching measure untouched, so
+calling `addHit`/`moveHit` with a `position.measure` beyond
+`score.measures.length` silently no-ops: nothing is inserted, and no error
+is thrown.
+
+This was discovered during this branch's Task 4 (wiring
+`consolidateDurations` into `transformations.ts`) when a test tried
+`addHit` on a from-scratch empty `Score` (`fromAnalysisEvents([])`, which
+has zero measures) and the insert did nothing. It's only reachable from an
+empty `Score` - real transcription data via `fromAnalysisEvents` always
+produces at least one measure - so it was correctly ruled out of scope for
+V1-018, and the affected test was rewritten to seed a real measure first
+instead of fixing `insertHit`.
+
+**Fix would involve:** extending `score.measures` up to `position.measure`
+(with empty/whole-rest measures for any gap) before mapping, so `insertHit`
+can create measures on demand.
+
+**Deferred:** out of scope for V1-018 - not reachable from the current UI,
+which always starts from `fromAnalysisEvents` on real transcription data.
+
+---
+
+## Note/rest durations have no dotted or tied values
+
+**Found in:** V1-018 (#51)
+
+`consolidateDurations`/`extendNoteDurations` (`frontend/lib/score/grid.ts`)
+only produce the five power-of-two durations (whole/half/quarter/eighth/
+sixteenth) - there's no dotted-note or tied-note support. A gap that isn't
+a power-of-two-aligned span renders as a note plus leftover rests rather
+than a single dotted note - e.g. a kick on beat 1 followed by silence to a
+kick on beat 4 renders as [half note, quarter rest, quarter note] rather
+than a dotted half note. This is consistent with how the pre-existing
+`consolidateRests` already handles rests (same limitation, already accepted
+for rests), but it's a newly user-visible behavior now that notes
+consolidate too.
+
+**Fix would involve:** extending `DURATION_SIZES_SIXTEENTHS`/the
+consolidation algorithm to consider dotted values (1.5x a base duration)
+and/or emit tied notes across a gap, rather than only the five untied
+power-of-two values.
+
+**Deferred:** out of scope for V1-018 - consistent with the pre-existing
+rest-consolidation behavior; revisit if real-groove testing shows this
+reads poorly.

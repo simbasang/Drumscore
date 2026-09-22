@@ -1,4 +1,4 @@
-import pytest
+import dataclasses
 
 from app.benchmark import DEFAULT_MATCH_TOLERANCE_SECONDS, evaluate_corpus, evaluate_transcriber
 from app.transcription import DrumEvent, DrumInstrument
@@ -138,8 +138,8 @@ def test_evaluate_transcriber_matches_the_closest_of_two_duplicate_predictions()
 
 def test_evaluate_corpus_returns_one_result_per_song_in_order():
     songs = [_song([]), _song([])]
-    songs[0] = DiagnosticSong(**{**songs[0].__dict__, "key": "first"})
-    songs[1] = DiagnosticSong(**{**songs[1].__dict__, "key": "second"})
+    songs[0] = dataclasses.replace(songs[0], key="first")
+    songs[1] = dataclasses.replace(songs[1], key="second")
     transcriber = FakeTranscriber([])
 
     results = evaluate_corpus(transcriber, songs)

@@ -1,12 +1,36 @@
 import dataclasses
 import tempfile
 from pathlib import Path
-from typing import Sequence
+from typing import Protocol, Sequence
 
 from app.transcription import DrumEvent, DrumInstrument, DrumTranscriber
-from tests.fixtures.diagnostic_songs import DiagnosticSong, ExpectedHit
 
+# Typical onset-detection jitter tolerance in MIR literature; also matches
+# this repo's own timing_variation fixture's +/-20ms jitter with margin.
 DEFAULT_MATCH_TOLERANCE_SECONDS = 0.05
+
+
+class ExpectedHit(Protocol):
+    """Structural match for tests.fixtures.diagnostic_songs.ExpectedHit -
+    this module must not import from tests/ (app/ is the deployed
+    package and tests/fixtures pulls in dev-only dependencies like
+    soundfile). Any object with these two attributes satisfies this
+    protocol automatically."""
+
+    time: float
+    instrument: DrumInstrument
+
+
+class BenchmarkSong(Protocol):
+    """Structural match for tests.fixtures.diagnostic_songs.DiagnosticSong
+    (and tests.fixtures.benchmark_corpus's songs, which share the same
+    shape) - see ExpectedHit's docstring for why this is a Protocol
+    instead of an import."""
+
+    key: str
+    expected_hits: Sequence[ExpectedHit]
+
+    def write_wav(self, path: Path) -> Path: ...
 
 
 @dataclasses.dataclass(frozen=True)
@@ -35,10 +59,14 @@ def _match_instrument(
 ) -> tuple[int, list[DrumEvent], list[ExpectedHit]]:
     """Greedy nearest-time matching within a single instrument: each
     predicted event (processed in time order) is matched to its closest
-    still-unmatched expected hit within tolerance_seconds. Simple and
-    auditable rather than an optimal assignment algorithm - sufficient for
-    this corpus's sparse (tens of hits) songs. Returns
-    (true_positive_count, unmatched_predicted, unmatched_expected)."""
+    still-unmatched expected hit within tolerance_seconds. When two
+    predicted events could both match the same expected hit, the
+    earlier-in-time predicted event is processed first and claims it,
+    even if a later-processed predicted event would have been numerically
+    closer - simple and auditable rather than an optimal assignment
+    algorithm, sufficient for this corpus's sparse (tens of hits) songs
+    where this doesn't change true/false-positive counts in practice.
+    Returns (true_positive_count, unmatched_predicted, unmatched_expected)."""
     remaining_expected = list(expected)
     unmatched_predicted: list[DrumEvent] = []
     true_positives = 0
@@ -64,7 +92,7 @@ def _match_instrument(
 
 def evaluate_transcriber(
     transcriber: DrumTranscriber,
-    song: DiagnosticSong,
+    song: BenchmarkSong,
     tolerance_seconds: float = DEFAULT_MATCH_TOLERANCE_SECONDS,
 ) -> BenchmarkResult:
     """Synthesizes song's audio, runs it through transcriber, and scores
@@ -124,7 +152,7 @@ def evaluate_transcriber(
 
 def evaluate_corpus(
     transcriber: DrumTranscriber,
-    songs: Sequence[DiagnosticSong],
+    songs: Sequence[BenchmarkSong],
     tolerance_seconds: float = DEFAULT_MATCH_TOLERANCE_SECONDS,
 ) -> tuple[BenchmarkResult, ...]:
     return tuple(evaluate_transcriber(transcriber, song, tolerance_seconds) for song in songs)

@@ -93,6 +93,19 @@ def test_build_event_diagnostics_passes_through_velocity_and_confidence():
     assert diagnostics[0].confidence == 0.9
 
 
+def test_build_event_diagnostics_passes_through_provenance():
+    raw_events = [
+        DrumEvent(id="e1", time=0.0, instrument=DrumInstrument.KICK, provenance="drumscript")
+    ]
+    quantized_events = quantize_events_with_beats(raw_events, CONSTANT_TEMPO_BEATS)
+
+    diagnostics = build_event_diagnostics(
+        raw_events, quantized_events, tempo_bpm=120.0, beats=CONSTANT_TEMPO_BEATS
+    )
+
+    assert diagnostics[0].provenance == "drumscript"
+
+
 def test_build_event_diagnostics_leaves_quantized_fields_none_when_no_matching_quantized_event():
     raw_events = [DrumEvent(id="e1", time=0.0, instrument=DrumInstrument.KICK)]
 

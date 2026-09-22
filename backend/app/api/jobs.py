@@ -336,6 +336,7 @@ class EventDiagnosticResponse(BaseModel):
     source_time: float
     velocity: float | None = None
     confidence: float | None = None
+    provenance: str | None = None
     measure: int | None = None
     beat: int | None = None
     subdivision: int | None = None
@@ -350,6 +351,7 @@ class EventDiagnosticResponse(BaseModel):
             source_time=diagnostic.source_time,
             velocity=diagnostic.velocity,
             confidence=diagnostic.confidence,
+            provenance=diagnostic.provenance,
             measure=diagnostic.measure,
             beat=diagnostic.beat,
             subdivision=diagnostic.subdivision,

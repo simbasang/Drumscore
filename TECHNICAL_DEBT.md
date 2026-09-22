@@ -332,9 +332,11 @@ GitHub issue against Epic 2/3 diagnostics tooling.
 **Found in:** V1-016 (#49) post-processing investigation
 
 The Epic 3 benchmark corpus (`backend/tests/fixtures/benchmark_corpus.py`)
-synthesizes each instrument as either a pure sine tone (kick, toms) or
-white noise with an exponential decay envelope (snare, hi-hats, crash,
-ride) - deliberately simple and copyright-free, following the existing
+synthesizes each instrument as either an enveloped sine tone (kick, toms
+- same exponential decay envelope as the noise-based instruments, only
+the carrier waveform differs) or white noise with an exponential decay
+envelope (snare, hi-hats, crash, ride) - deliberately simple and
+copyright-free, following the existing
 `diagnostic_songs.py` pattern. Running the real `DrumScriptTranscriber`
 against this corpus (`backend/tests/test_transcription_benchmark.py`)
 measured a corpus-wide F1 of only 0.0671, with near-total non-detection

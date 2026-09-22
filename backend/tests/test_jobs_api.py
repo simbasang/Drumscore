@@ -266,6 +266,7 @@ def test_get_diagnostics_returns_traced_events_when_job_is_tempo_mapped():
     assert body["events"][0]["source_time"] == 0.5
     assert body["events"][0]["measure"] is not None
     assert isinstance(body["events"][0]["quantization_error_seconds"], float)
+    assert body["events"][0]["provenance"] == "drumscript"
 
 
 def test_get_diagnostics_uses_beat_anchored_reconstruction():

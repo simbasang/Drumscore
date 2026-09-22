@@ -15,7 +15,7 @@ Per-song results from `evaluate_corpus(DrumScriptTranscriber(), list_benchmark_s
 (the same real run recorded as the baseline in
 `backend/tests/test_transcription_benchmark.py`, BASELINE_CORPUS_F1 = 0.0671):
 
-| Song | Predicted (total) | Expected (total) | Notable false-positive pattern | Notable false-negative pattern |
+| Song | Predicted (total) | Expected (total) | What was actually predicted | Notable false-negative pattern |
 |---|---|---|---|---|
 | `straight_rock` | 31 | 48 | Exclusively hihat_closed(3)/hihat_open(28) predicted | Zero kick, zero snare predicted despite both being expected throughout |
 | `syncopated_funk` | 31 | 52 | crash(19)/hihat_closed(4)/hihat_open(8) | Zero kick, zero snare predicted |
@@ -49,9 +49,11 @@ thresholds, which is a third-party engine's internals and never becomes
 this project's contract (`docs/ARCHITECTURE_V1.md`).
 
 **No post-processing change is justified by this corpus's data.** This
-is the design doc's own explicitly-anticipated legitimate outcome: "If
-nothing in the corpus reveals a clear, justified tweak, the honest
-outcome is 'no post-processing needed at this corpus size.'"
+is the design doc's own pre-approved outcome: it explicitly said to
+implement a post-processing step only if the false-positive/negative
+pattern justifies one, with nothing assumed necessary in advance (see
+`docs/superpowers/specs/2026-09-22-transcription-engine-2-0-design.md`,
+"#49 — Post-processing and strategy selection").
 
 See `TECHNICAL_DEBT.md`'s "Benchmark corpus's synthetic audio doesn't
 exercise DrumScript's classifier realistically" entry for the corpus

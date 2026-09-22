@@ -40,6 +40,8 @@ Build a labelled benchmark, measure per-instrument accuracy, compare candidate e
 
 Exit gate: selected transcription strategy has documented measured quality and materially improves on the MVP baseline. Delivered via a synthetic benchmark corpus and per-instrument metrics harness (`backend/app/benchmark.py`), a desk-research evaluation of alternative engines (`docs/transcription-engine-evaluation.md`, no swap recommended), confidence/provenance semantics on `DrumEvent`, and a benchmark-driven post-processing investigation (`docs/transcription-post-processing-investigation.md`) that found no change justified - `DrumScriptTranscriber` remains the production engine, now with measured, documented accuracy instead of an unverified assumption.
 
+Deferred follow-up: the corpus above is entirely synthetic (see TECHNICAL_DEBT.md, "Benchmark corpus's synthetic audio doesn't exercise DrumScript's classifier realistically"), so it doesn't yet satisfy this document's own Quality gates rule that "audio/ML work requires representative real-song fixtures in addition to unit tests." A real-audio validation pass against IDMT-SMT-Drums - a published, ground-truth-labelled real-drum-recording dataset that DrumScript's own package already ships a loader for (`drumscript/datasets/idmt.py`; kick/snare/hi-hat coverage only, no toms/cymbals) - has not yet been run and would give a real measured accuracy number instead of the synthetic corpus's proxy.
+
 ### Epic 4 — Notation Engine 2.0
 Replace the dense sixteenth-note event grid with musically readable notation: note-duration consolidation, correct beams/grouping, improved hi-hat notation, dynamic layout, timestamp-linked rendered events and visual/reference regression tests.
 

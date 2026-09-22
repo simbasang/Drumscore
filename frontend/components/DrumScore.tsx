@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Formatter, Renderer, Stave, Voice } from "vexflow";
 
 import type { AnalysisEvent } from "@/lib/api/jobs";
 import { fromAnalysisEvents } from "@/lib/score/buildScore";
 import { buildStaveNote } from "@/lib/notation/buildStaveNote";
 import { buildBeams } from "@/lib/notation/beaming";
+import { computeRowLayout } from "@/lib/notation/layout";
 import { computeAutoScrollLeft, interpolatePlayheadX, type TimelinePoint } from "@/lib/notation/timeline";
 
 interface DrumScoreProps {
@@ -14,11 +15,17 @@ interface DrumScoreProps {
   currentTime?: number;
 }
 
-const MEASURES_PER_ROW = 4;
-const MEASURE_WIDTH = 200;
 const ROW_HEIGHT = 120;
 const STAVE_X_START = 10;
+// Padding subtracted from a stave's own width when asking VexFlow's Formatter
+// to justify notes into it - keeps notes from touching the stave's right
+// edge/barline. Matches the padding baked into each measure's precalculated
+// minimum width, so a stave sized exactly at that minimum still has room.
+const MEASURE_INNER_PADDING = 20;
 const PLAYHEAD_ID = "drum-score-playhead";
+// Only a real width change (not sub-pixel float jitter from ResizeObserver)
+// should trigger a relayout.
+const RESIZE_THRESHOLD_PX = 1;
 
 function averageSourceTime(sourceTimes: number[]): number {
   return sourceTimes.reduce((sum, time) => sum + time, 0) / sourceTimes.length;
@@ -27,6 +34,29 @@ function averageSourceTime(sourceTimes: number[]): number {
 export default function DrumScore({ events, currentTime }: DrumScoreProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<TimelinePoint[]>([]);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  // Tracks the container's real width so layout can adapt to the viewport.
+  // Deliberately its own effect, independent of the currentTime/playhead
+  // effect below, so a resize can never be triggered by playback ticking and
+  // playback ticking can never trigger a relayout.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    setContainerWidth(container.clientWidth);
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const width = entry.contentRect.width;
+        setContainerWidth((previous) => (Math.abs(previous - width) > RESIZE_THRESHOLD_PX ? width : previous));
+      }
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     // containerRef is attached to the div this component always renders,
@@ -45,29 +75,7 @@ export default function DrumScore({ events, currentTime }: DrumScoreProps) {
       return;
     }
 
-    const rows = Math.ceil(measures.length / MEASURES_PER_ROW);
-    const width = MEASURES_PER_ROW * MEASURE_WIDTH + STAVE_X_START * 2;
-    const height = rows * ROW_HEIGHT + 40;
-
-    const renderer = new Renderer(container, Renderer.Backends.SVG);
-    renderer.resize(width, height);
-    const context = renderer.getContext();
-
-    measures.forEach((measure, index) => {
-      const row = Math.floor(index / MEASURES_PER_ROW);
-      const col = index % MEASURES_PER_ROW;
-      const x = STAVE_X_START + col * MEASURE_WIDTH;
-      const y = 20 + row * ROW_HEIGHT;
-
-      const stave = new Stave(x, y, MEASURE_WIDTH);
-      if (col === 0) {
-        stave.addClef("percussion");
-      }
-      if (index === 0) {
-        stave.setTimeSignature("4/4");
-      }
-      stave.setContext(context).draw();
-
+    const built = measures.map((measure) => {
       const notes = measure.map(buildStaveNote);
       // beams must be constructed before Formatter/voice.draw() - VexFlow's
       // Beam constructor calls note.setBeam(this) internally, and StaveNote
@@ -78,8 +86,40 @@ export default function DrumScore({ events, currentTime }: DrumScoreProps) {
       const beams = buildBeams(measure, notes);
       const voice = new Voice({ numBeats: 4, beatValue: 4 }).setStrict(false);
       voice.addTickables(notes);
+      // Note: joinVoices has to be called before preCalculateMinTotalWidth.
+      const minWidth = new Formatter().joinVoices([voice]).preCalculateMinTotalWidth([voice]);
+      return { measure, notes, beams, voice, minWidth: minWidth + MEASURE_INNER_PADDING };
+    });
 
-      new Formatter().joinVoices([voice]).format([voice], MEASURE_WIDTH - 20);
+    const availableWidth = Math.max(containerWidth - STAVE_X_START * 2, 0);
+    const placements = computeRowLayout(
+      built.map((measure) => measure.minWidth),
+      availableWidth,
+      { startX: STAVE_X_START },
+    );
+
+    const rows = Math.max(...placements.map((placement) => placement.row)) + 1;
+    const width = Math.max(...placements.map((placement) => placement.x + placement.width)) + STAVE_X_START;
+    const height = rows * ROW_HEIGHT + 40;
+
+    const renderer = new Renderer(container, Renderer.Backends.SVG);
+    renderer.resize(width, height);
+    const context = renderer.getContext();
+
+    placements.forEach(({ index, row, col, x, width: staveWidth }) => {
+      const { measure, notes, beams, voice } = built[index];
+      const y = 20 + row * ROW_HEIGHT;
+
+      const stave = new Stave(x, y, staveWidth);
+      if (col === 0) {
+        stave.addClef("percussion");
+      }
+      if (index === 0) {
+        stave.setTimeSignature("4/4");
+      }
+      stave.setContext(context).draw();
+
+      new Formatter().joinVoices([voice]).format([voice], staveWidth - MEASURE_INNER_PADDING);
       voice.draw(context, stave);
       beams.forEach((beam) => beam.setContext(context).draw());
 
@@ -104,7 +144,7 @@ export default function DrumScore({ events, currentTime }: DrumScoreProps) {
         });
       });
     });
-  }, [events]);
+  }, [events, containerWidth]);
 
   useEffect(() => {
     const container = containerRef.current;

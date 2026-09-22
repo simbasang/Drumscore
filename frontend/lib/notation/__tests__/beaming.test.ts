@@ -1,4 +1,6 @@
-import { computeBeamGroupIndices } from "../beaming";
+import { Stem } from "vexflow";
+import { buildBeams, computeBeamGroupIndices } from "../beaming";
+import { buildStaveNote } from "../buildStaveNote";
 import type { Measure, Slot } from "@/lib/score/types";
 
 function note(beat: number, subdivision: number, duration: string): Slot {
@@ -122,5 +124,55 @@ describe("computeBeamGroupIndices", () => {
     const groups = computeBeamGroupIndices(measure);
 
     expect(groups).toEqual([]);
+  });
+});
+
+describe("buildBeams", () => {
+  it("should build one Beam per group returned by computeBeamGroupIndices", () => {
+    const measure: Measure = [
+      note(1, 0, "16"),
+      note(1, 1, "16"),
+      note(1, 2, "16"),
+      note(1, 3, "16"),
+      rest(2, 0, "4"),
+    ];
+    const notes = measure.map(buildStaveNote);
+
+    const beams = buildBeams(measure, notes);
+
+    expect(beams).toHaveLength(1);
+    expect(beams[0].getNotes()).toEqual([notes[0], notes[1], notes[2], notes[3]]);
+  });
+
+  it("should build a separate Beam per beat, never merging across beats", () => {
+    const measure: Measure = [note(1, 0, "8"), note(1, 2, "8"), note(2, 0, "8"), note(2, 2, "8")];
+    const notes = measure.map(buildStaveNote);
+
+    const beams = buildBeams(measure, notes);
+
+    expect(beams).toHaveLength(2);
+    expect(beams[0].getNotes()).toEqual([notes[0], notes[1]]);
+    expect(beams[1].getNotes()).toEqual([notes[2], notes[3]]);
+  });
+
+  it("should build no Beams when nothing qualifies for beaming", () => {
+    const measure: Measure = [rest(1, 0, "4"), note(2, 0, "4")];
+    const notes = measure.map(buildStaveNote);
+
+    const beams = buildBeams(measure, notes);
+
+    expect(beams).toHaveLength(0);
+  });
+
+  it("should keep every beamed note's stem pointing up", () => {
+    const measure: Measure = [note(1, 0, "8"), note(1, 2, "8")];
+    const notes = measure.map(buildStaveNote);
+
+    const beams = buildBeams(measure, notes);
+
+    expect(beams[0].getStemDirection()).toBe(Stem.UP);
+    beams[0].getNotes().forEach((beamedNote) => {
+      expect(beamedNote.getStemDirection()).toBe(Stem.UP);
+    });
   });
 });

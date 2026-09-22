@@ -1,3 +1,4 @@
+import { Beam, StaveNote } from "vexflow";
 import type { Measure, Slot } from "@/lib/score/types";
 
 const BEAMABLE_DURATIONS = new Set(["8", "16"]);
@@ -42,4 +43,12 @@ export function computeBeamGroupIndices(measure: Measure): number[][] {
   flush();
 
   return groups;
+}
+
+// notes must be measure.map(buildStaveNote) - same length/order as measure,
+// so computeBeamGroupIndices's indices line up with real StaveNotes.
+// autoStem is false because buildStaveNote already forces every note's stem
+// direction upward; Beam must not recompute it.
+export function buildBeams(measure: Measure, notes: StaveNote[]): Beam[] {
+  return computeBeamGroupIndices(measure).map((indices) => new Beam(indices.map((index) => notes[index]), false));
 }

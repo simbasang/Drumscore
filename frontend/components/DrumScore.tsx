@@ -8,6 +8,7 @@ import { fromAnalysisEvents } from "@/lib/score/buildScore";
 import { buildStaveNote } from "@/lib/notation/buildStaveNote";
 import { buildBeams } from "@/lib/notation/beaming";
 import { computeRowLayout } from "@/lib/notation/layout";
+import { computeNoteJustifyWidth } from "@/lib/notation/staveFormatting";
 import { computeAutoScrollLeft, interpolatePlayheadX, type TimelinePoint } from "@/lib/notation/timeline";
 
 interface DrumScoreProps {
@@ -17,10 +18,10 @@ interface DrumScoreProps {
 
 const ROW_HEIGHT = 120;
 const STAVE_X_START = 10;
-// Padding subtracted from a stave's own width when asking VexFlow's Formatter
-// to justify notes into it - keeps notes from touching the stave's right
-// edge/barline. Matches the padding baked into each measure's precalculated
-// minimum width, so a stave sized exactly at that minimum still has room.
+// Trailing safety margin (beyond the real clef/time-signature prefix width,
+// see computeNoteJustifyWidth) so the last note's glyph doesn't touch the
+// stave's right edge/barline. Also folded into each measure's precalculated
+// minimum width so a stave sized exactly at that minimum still has room.
 const MEASURE_INNER_PADDING = 20;
 const PLAYHEAD_ID = "drum-score-playhead";
 // Only a real width change (not sub-pixel float jitter from ResizeObserver)
@@ -119,7 +120,8 @@ export default function DrumScore({ events, currentTime }: DrumScoreProps) {
       }
       stave.setContext(context).draw();
 
-      new Formatter().joinVoices([voice]).format([voice], staveWidth - MEASURE_INNER_PADDING);
+      const justifyWidth = computeNoteJustifyWidth(stave, staveWidth, MEASURE_INNER_PADDING);
+      new Formatter().joinVoices([voice]).format([voice], justifyWidth);
       voice.draw(context, stave);
       beams.forEach((beam) => beam.setContext(context).draw());
 

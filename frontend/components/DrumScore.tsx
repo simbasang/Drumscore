@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Beam, Formatter, Fraction, Renderer, Stave, Voice } from "vexflow";
+import { Formatter, Renderer, Stave, Voice } from "vexflow";
 
 import type { AnalysisEvent } from "@/lib/api/jobs";
 import { fromAnalysisEvents } from "@/lib/score/buildScore";
 import { buildStaveNote } from "@/lib/notation/buildStaveNote";
+import { buildBeams } from "@/lib/notation/beaming";
 import { computeAutoScrollLeft, interpolatePlayheadX, type TimelinePoint } from "@/lib/notation/timeline";
 
 interface DrumScoreProps {
@@ -68,18 +69,18 @@ export default function DrumScore({ events, currentTime }: DrumScoreProps) {
       stave.setContext(context).draw();
 
       const notes = measure.map(buildStaveNote);
+      // beams must be constructed before Formatter/voice.draw() - VexFlow's
+      // Beam constructor calls note.setBeam(this) internally, and StaveNote
+      // consults that beam reference (via shouldDrawFlag()) while formatting
+      // and drawing to suppress its own flag glyph and un-extended stem.
+      // Building beams after draw() left every beamed note flagged with a
+      // double stem underneath the beam. See TECHNICAL_DEBT.md / #52 review.
+      const beams = buildBeams(measure, notes);
       const voice = new Voice({ numBeats: 4, beatValue: 4 }).setStrict(false);
       voice.addTickables(notes);
 
       new Formatter().joinVoices([voice]).format([voice], MEASURE_WIDTH - 20);
       voice.draw(context, stave);
-
-      const beams = Beam.generateBeams(notes, {
-        stemDirection: 1,
-        maintainStemDirections: true,
-        beamRests: false,
-        groups: [new Fraction(1, 4)],
-      });
       beams.forEach((beam) => beam.setContext(context).draw());
 
       notes.forEach((note, slotIndex) => {

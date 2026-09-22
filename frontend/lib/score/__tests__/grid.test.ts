@@ -114,6 +114,22 @@ describe("expandMeasure", () => {
     expect(expanded[5]).toMatchObject({ type: "note", position: { measure: 4, beat: 2, subdivision: 1 } });
     expect(expanded.filter((slot) => slot.type === "rest")).toHaveLength(15);
   });
+
+  it("should reset an extended note's duration back to a sixteenth when exploding it", () => {
+    const quarterNote: ScoreNote = { ...note(4, 2, 0), duration: "4" };
+    const measure: Measure = [quarterNote];
+
+    const expanded = expandMeasure(measure, 4);
+
+    expect(expanded).toHaveLength(16);
+    expect(expanded[4]).toMatchObject({ type: "note", duration: "16", position: { measure: 4, beat: 2, subdivision: 0 } });
+    expect(expanded.filter((slot) => slot.type === "rest")).toHaveLength(15);
+    const totalSixteenths = expanded.reduce(
+      (sum, slot) => sum + ({ "1": 16, "2": 8, "4": 4, "8": 2, "16": 1 }[slot.duration] ?? 0),
+      0,
+    );
+    expect(totalSixteenths).toBe(16);
+  });
 });
 
 describe("consolidateDurations", () => {

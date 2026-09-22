@@ -121,18 +121,17 @@ function extendNoteDurations(slots: Slot[]): Slot[] {
   return result;
 }
 
-// Expands an already-consolidated measure back to one slot per sixteenth,
-// so a transformation can edit a single slot before re-consolidating. Every
-// note in `measure` occupies exactly one sixteenth (durations aren't
-// consolidated across notes yet - that's V1-018/#51), so this only needs to
-// place each note at its own index and fill every other index with a fresh
-// single-sixteenth rest; existing rest slots in `measure` are discarded and
-// rebuilt, since consolidateRests will regenerate them anyway.
+// Expands an already-consolidated measure back to one slot per sixteenth, so
+// a transformation can edit a single slot before re-consolidating. Every note
+// is reset to a single-sixteenth duration at its own index here - any longer
+// duration it had (from consolidateDurations) only reflects trailing rests
+// that get freshly rebuilt below, so keeping the old duration would
+// double-count that span once notes can be longer than one sixteenth.
 export function expandMeasure(measure: Measure, measureNumber: number): Slot[] {
   const bySixteenthIndex = new Map<number, Slot>();
   for (const slot of measure) {
     if (slot.type === "note") {
-      bySixteenthIndex.set(toSixteenthIndex(slot.position), slot);
+      bySixteenthIndex.set(toSixteenthIndex(slot.position), { ...slot, duration: SLOT_DURATION });
     }
   }
 

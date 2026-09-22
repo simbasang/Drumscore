@@ -50,6 +50,6 @@ unverifiable transcription.
 ## Adding a new fixture
 
 1. Add a `_build_<name>()` function returning a `DiagnosticSong`, using
-   `_steady_rock_beat(...)` or building `ExpectedHit`s directly.
+   `steady_rock_beat(...)` or building `ExpectedHit`s directly.
 2. Register it in `_BUILDERS` in `diagnostic_songs.py`.
 3. Document it in the table above.

@@ -219,6 +219,12 @@ describe("consolidateDurations", () => {
     expect(result[1]).toMatchObject({ type: "note", duration: "16" });
     expect(result[2]).toMatchObject({ type: "note", duration: "16" });
     expect(result[3]).toMatchObject({ type: "note", duration: "16" });
+
+    // Regression test: verify the trailing rests (filled to the end of the
+    // measure above) are not silently dropped during consolidation.
+    const durationMap: Record<string, number> = { "1": 16, "2": 8, "4": 4, "8": 2, "16": 1 };
+    const totalSixteenths = result.reduce((sum, slot) => sum + durationMap[slot.duration], 0);
+    expect(totalSixteenths).toBe(16);
   });
 
   it("should cap a note's extension at the alignment boundary instead of overrunning into a misaligned duration", () => {

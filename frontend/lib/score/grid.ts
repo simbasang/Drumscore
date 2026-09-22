@@ -84,7 +84,10 @@ export function consolidateRests(slots: Slot[]): Slot[] {
 // how "durations derived from occupied rhythmic positions" (V1-018/#51) works:
 // a note's rendered duration is the gap to the next occupied position (or end
 // of measure), quantized down to the largest metrically-valid value - not a
-// fixed sixteenth.
+// fixed sixteenth. Input must be a fully-expanded measure - one single-sixteenth
+// slot per index, as produced by fromAnalysisEvents's raw grid or expandMeasure;
+// feeding it an already-consolidated measure will silently misinterpret
+// array-entry counts as sixteenth counts
 export function consolidateDurations(slots: Slot[]): Slot[] {
   return consolidateRests(extendNoteDurations(slots));
 }

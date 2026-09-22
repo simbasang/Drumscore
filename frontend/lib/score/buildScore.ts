@@ -1,5 +1,5 @@
 import type { AnalysisEvent } from "@/lib/api/jobs";
-import { BEATS_PER_MEASURE, consolidateRests, SLOT_DURATION, SUBDIVISIONS_PER_BEAT } from "./grid";
+import { BEATS_PER_MEASURE, consolidateDurations, SLOT_DURATION, SUBDIVISIONS_PER_BEAT } from "./grid";
 import { generateId } from "./id";
 import type { Measure, MusicalPosition, Score, ScoreNote, Slot } from "./types";
 
@@ -42,7 +42,7 @@ export function fromAnalysisEvents(events: AnalysisEvent[]): Score {
       }
     }
 
-    measures.push(consolidateRests(slots));
+    measures.push(consolidateDurations(slots));
   }
 
   return { measures };

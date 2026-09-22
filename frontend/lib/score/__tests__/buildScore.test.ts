@@ -37,7 +37,7 @@ describe("fromAnalysisEvents", () => {
     ]);
   });
 
-  it("should place a single event in its slot and consolidate the remaining rests down to the fewest tied durations", () => {
+  it("should extend a single event's note to fill the rest of an otherwise-empty measure", () => {
     const score = fromAnalysisEvents([
       event({ id: "a", instrument: "kick", beat: 1, subdivision: 0, time: 0.1, confidence: 0.8 }),
     ]);
@@ -47,7 +47,7 @@ describe("fromAnalysisEvents", () => {
         type: "note",
         id: expect.any(String),
         position: { measure: 1, beat: 1, subdivision: 0 },
-        duration: "16",
+        duration: "1",
         hits: [
           {
             id: expect.any(String),
@@ -59,10 +59,52 @@ describe("fromAnalysisEvents", () => {
           },
         ],
       },
-      { type: "rest", id: expect.any(String), duration: "16", position: { measure: 1, beat: 1, subdivision: 1 } },
-      { type: "rest", id: expect.any(String), duration: "8", position: { measure: 1, beat: 1, subdivision: 2 } },
-      { type: "rest", id: expect.any(String), duration: "4", position: { measure: 1, beat: 2, subdivision: 0 } },
-      { type: "rest", id: expect.any(String), duration: "2", position: { measure: 1, beat: 3, subdivision: 0 } },
+    ]);
+  });
+
+  it("should render a four-on-the-floor kick groove as quarter notes", () => {
+    const score = fromAnalysisEvents(
+      [1, 2, 3, 4].map((beat) => event({ id: `k${beat}`, instrument: "kick", beat, subdivision: 0 })),
+    );
+
+    expect(score.measures[0]).toHaveLength(4);
+    expect(score.measures[0].every((slot) => slot.type === "note" && slot.duration === "4")).toBe(true);
+  });
+
+  it("should render a steady eighth-note hi-hat groove as eighth notes", () => {
+    const positions = [0, 1, 2, 3].flatMap((beat) => [
+      { beat: beat + 1, subdivision: 0 },
+      { beat: beat + 1, subdivision: 2 },
+    ]);
+    const score = fromAnalysisEvents(
+      positions.map((p, i) => event({ id: `h${i}`, instrument: "hihat_closed", ...p })),
+    );
+
+    expect(score.measures[0]).toHaveLength(8);
+    expect(score.measures[0].every((slot) => slot.type === "note" && slot.duration === "8")).toBe(true);
+  });
+
+  it("should render a sixteenth-note hi-hat groove as sixteenth notes with no consolidation", () => {
+    const score = fromAnalysisEvents(
+      Array.from({ length: 16 }, (_, subdivision) =>
+        event({ id: `h${subdivision}`, instrument: "hihat_closed", beat: Math.floor(subdivision / 4) + 1, subdivision: subdivision % 4 }),
+      ),
+    );
+
+    expect(score.measures[0]).toHaveLength(16);
+    expect(score.measures[0].every((slot) => slot.type === "note" && slot.duration === "16")).toBe(true);
+  });
+
+  it("should render a kick-and-backbeat-snare groove as quarter notes on the hits and a consolidated rest between", () => {
+    const score = fromAnalysisEvents([
+      event({ id: "k1", instrument: "kick", beat: 1, subdivision: 0 }),
+      event({ id: "s1", instrument: "snare", beat: 2, subdivision: 0 }),
+    ]);
+
+    expect(score.measures[0]).toEqual([
+      expect.objectContaining({ type: "note", duration: "4", position: { measure: 1, beat: 1, subdivision: 0 } }),
+      expect.objectContaining({ type: "note", duration: "4", position: { measure: 1, beat: 2, subdivision: 0 } }),
+      expect.objectContaining({ type: "rest", duration: "2", position: { measure: 1, beat: 3, subdivision: 0 } }),
     ]);
   });
 

@@ -68,7 +68,7 @@ describe("buildStaveNote", () => {
     expect(note.isRest()).toBe(true);
   });
 
-  it("should attach an articulation for an open hi-hat", () => {
+  it("should use a circled-X notehead for an open hi-hat", () => {
     const note = buildStaveNote({
       type: "note",
       id: "n",
@@ -77,7 +77,26 @@ describe("buildStaveNote", () => {
       hits: [hit({ instrument: "hihat_open" })],
     });
 
-    expect(note.getModifiersByType("Articulation")).toHaveLength(1);
+    expect(note.getKeys()).toEqual(["g/5/x3"]);
+  });
+
+  it("should use different noteheads for open vs. closed hi-hat", () => {
+    const closed = buildStaveNote({
+      type: "note",
+      id: "n1",
+      position: { measure: 1, beat: 1, subdivision: 0 },
+      duration: "16",
+      hits: [hit({ instrument: "hihat_closed" })],
+    });
+    const open = buildStaveNote({
+      type: "note",
+      id: "n2",
+      position: { measure: 1, beat: 1, subdivision: 0 },
+      duration: "16",
+      hits: [hit({ instrument: "hihat_open" })],
+    });
+
+    expect(closed.getKeys()).not.toEqual(open.getKeys());
   });
 
   it("should deduplicate identical instruments among simultaneous hits", () => {

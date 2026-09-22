@@ -23,7 +23,7 @@ Quantization maps source timestamps to musical positions using detected beat/dow
 The application-owned score supports simultaneous hits, note/rest durations, grouping/ties where required, measures, add/delete/move/change-instrument operations, links to source events, and confidence/provenance metadata. Editor and renderer never operate directly on DrumScript/VexFlow structures.
 
 ## Engraving
-VexFlow may remain the renderer but stays inside the engraving layer. Required style: five-line percussion staff, explicit upward stems, conventional positions, simultaneous grouping, readable beams/rests, explicit open/closed hi-hat and dynamic line breaking. Rendered elements retain score-event IDs for click-to-seek/editing.
+VexFlow may remain the renderer but stays inside the engraving layer. Required style: five-line percussion staff, explicit upward stems, conventional positions, simultaneous grouping, readable beams/rests, explicit open/closed hi-hat and dynamic line breaking. Rendered elements retain score-event IDs for click-to-seek/editing. The instrument-to-staff-position/notehead mapping (including the closed/open hi-hat convention) is documented in `docs/notation-instrument-mapping.md`.
 
 ## Playback
 One Web Audio transport owns source time, play/pause, seek, loop range, playback rate and synchronized stem start/stop. The playhead asks timing/score mapping where source time belongs; it never accumulates BPM ticks.

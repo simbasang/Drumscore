@@ -165,4 +165,25 @@ describe("DrumScore", () => {
 
     expect(screen.getByTestId("drum-score")).toBeInTheDocument();
   });
+
+  it("should render a separate beam per beat for a straight eighth-note groove, not one beam per measure", () => {
+    render(
+      <DrumScore
+        events={[
+          event({ id: "1", instrument: "hihat_closed", beat: 1, subdivision: 0, time: 0 }),
+          event({ id: "2", instrument: "hihat_closed", beat: 1, subdivision: 2, time: 0.25 }),
+          event({ id: "3", instrument: "hihat_closed", beat: 2, subdivision: 0, time: 0.5 }),
+          event({ id: "4", instrument: "hihat_closed", beat: 2, subdivision: 2, time: 0.75 }),
+        ]}
+      />,
+    );
+
+    const container = screen.getByTestId("drum-score");
+    // VexFlow 5 puts the "vf-beam" class on the wrapping <g> for each beam
+    // group (the inner connecting <path> is unclassed), so querying on the
+    // group element is what actually counts distinct beams.
+    const beamGroups = container.querySelectorAll("g.vf-beam");
+
+    expect(beamGroups.length).toBe(2);
+  });
 });

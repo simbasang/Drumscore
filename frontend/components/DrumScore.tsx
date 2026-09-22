@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Beam, Formatter, Fraction, Renderer, Stave, Voice } from "vexflow";
+import { Formatter, Renderer, Stave, Voice } from "vexflow";
 
 import type { AnalysisEvent } from "@/lib/api/jobs";
 import { fromAnalysisEvents } from "@/lib/score/buildScore";
 import { buildStaveNote } from "@/lib/notation/buildStaveNote";
+import { buildBeams } from "@/lib/notation/beaming";
 import { computeAutoScrollLeft, interpolatePlayheadX, type TimelinePoint } from "@/lib/notation/timeline";
 
 interface DrumScoreProps {
@@ -74,12 +75,7 @@ export default function DrumScore({ events, currentTime }: DrumScoreProps) {
       new Formatter().joinVoices([voice]).format([voice], MEASURE_WIDTH - 20);
       voice.draw(context, stave);
 
-      const beams = Beam.generateBeams(notes, {
-        stemDirection: 1,
-        maintainStemDirections: true,
-        beamRests: false,
-        groups: [new Fraction(1, 4)],
-      });
+      const beams = buildBeams(measure, notes);
       beams.forEach((beam) => beam.setContext(context).draw());
 
       notes.forEach((note, slotIndex) => {

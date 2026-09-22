@@ -1,5 +1,5 @@
 import type { DrumInstrument } from "@/lib/api/jobs";
-import { consolidateRests, expandMeasure, SLOT_DURATION, toSixteenthIndex } from "./grid";
+import { consolidateDurations, expandMeasure, SLOT_DURATION, toSixteenthIndex } from "./grid";
 import { generateId } from "./id";
 import type { MusicalPosition, Score, ScoreHit, ScoreNote, Slot } from "./types";
 
@@ -36,7 +36,7 @@ export function deleteHit(score: Score, hitId: string): Score {
       return { ...slot, hits };
     });
 
-    return consolidateRests(updated);
+    return consolidateDurations(updated);
   });
 
   return { measures };
@@ -84,7 +84,7 @@ function insertHit(score: Score, position: MusicalPosition, hit: ScoreHit): Scor
 
     expanded[sixteenthIndex] = note;
 
-    return consolidateRests(expanded);
+    return consolidateDurations(expanded);
   });
 
   return { measures };

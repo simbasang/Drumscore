@@ -138,3 +138,16 @@ def test_transcribe_raises_when_runner_environment_missing(tmp_path):
     with patch("app.drumscript_transcriber._runner_python", return_value=missing_python):
         with pytest.raises(TranscriptionError, match="runner environment"):
             DrumScriptTranscriber().transcribe(tmp_path / "drums.wav")
+
+
+def test_transcribe_sets_drumscript_as_provenance_and_leaves_confidence_null(tmp_path):
+    with patch("app.drumscript_transcriber.subprocess.run") as mock_run:
+        mock_run.side_effect = _writes_events_file(
+            [{"time_sec": 1.0, "instruments": ["kick", "snare"]}]
+        )
+
+        events = DrumScriptTranscriber().transcribe(tmp_path / "drums.wav")
+
+    assert len(events) == 2
+    assert all(e.provenance == "drumscript" for e in events)
+    assert all(e.confidence is None for e in events)

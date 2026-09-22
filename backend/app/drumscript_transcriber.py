@@ -39,7 +39,14 @@ def _map_events(raw_events: list[dict]) -> list[DrumEvent]:
             instrument = _INSTRUMENT_MAP.get(raw_instrument)
             if instrument is None:
                 continue
-            events.append(DrumEvent(id=str(uuid.uuid4()), time=time, instrument=instrument))
+            events.append(
+                DrumEvent(
+                    id=str(uuid.uuid4()),
+                    time=time,
+                    instrument=instrument,
+                    provenance="drumscript",
+                )
+            )
 
     return events
 

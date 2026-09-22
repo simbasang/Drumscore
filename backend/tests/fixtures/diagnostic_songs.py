@@ -103,7 +103,7 @@ class DiagnosticSong:
         return path
 
 
-def _steady_rock_beat(
+def steady_rock_beat(
     start_time: float, tempo_bpm: float, num_measures: int
 ) -> list[ExpectedHit]:
     seconds_per_beat = 60.0 / tempo_bpm
@@ -138,7 +138,7 @@ def _build_steady_4_4() -> DiagnosticSong:
     tempo_bpm = 120.0
     num_measures = 4
     seconds_per_beat = 60.0 / tempo_bpm
-    hits = _steady_rock_beat(start_time=0.0, tempo_bpm=tempo_bpm, num_measures=num_measures)
+    hits = steady_rock_beat(start_time=0.0, tempo_bpm=tempo_bpm, num_measures=num_measures)
 
     return DiagnosticSong(
         key="steady_4_4",
@@ -166,7 +166,7 @@ def _build_intro_count_in() -> DiagnosticSong:
         for beat in range(4)
     ]
     downbeat_offset = lead_in_silence + 4 * seconds_per_beat
-    groove_hits = _steady_rock_beat(
+    groove_hits = steady_rock_beat(
         start_time=downbeat_offset, tempo_bpm=tempo_bpm, num_measures=num_measures
     )
     hits = count_in_hits + groove_hits
@@ -190,7 +190,7 @@ def _build_dense_fill() -> DiagnosticSong:
     tempo_bpm = 120.0
     seconds_per_beat = 60.0 / tempo_bpm
     groove_measures = 2
-    groove_hits = _steady_rock_beat(
+    groove_hits = steady_rock_beat(
         start_time=0.0, tempo_bpm=tempo_bpm, num_measures=groove_measures
     )
 
@@ -246,7 +246,7 @@ def _build_timing_variation() -> DiagnosticSong:
     tempo_bpm = 120.0
     num_measures = 4
     seconds_per_beat = 60.0 / tempo_bpm
-    base_hits = _steady_rock_beat(start_time=0.0, tempo_bpm=tempo_bpm, num_measures=num_measures)
+    base_hits = steady_rock_beat(start_time=0.0, tempo_bpm=tempo_bpm, num_measures=num_measures)
 
     rng = np.random.default_rng(4200)
     max_jitter_seconds = 0.02

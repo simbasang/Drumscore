@@ -58,8 +58,10 @@ class FailingStemSeparator:
 class FakeTranscriber:
     def transcribe(self, audio_path):
         return [
-            DrumEvent(id="e1", time=0.5, instrument=DrumInstrument.KICK),
-            DrumEvent(id="e2", time=0.5, instrument=DrumInstrument.HIHAT_CLOSED),
+            DrumEvent(id="e1", time=0.5, instrument=DrumInstrument.KICK, provenance="drumscript"),
+            DrumEvent(
+                id="e2", time=0.5, instrument=DrumInstrument.HIHAT_CLOSED, provenance="drumscript"
+            ),
         ]
 
 
@@ -222,6 +224,17 @@ def test_get_analysis_returns_tempo_and_events_when_job_is_tempo_mapped():
     assert body["events"][0]["time"] == 0.5
 
 
+def test_get_analysis_exposes_confidence_and_provenance_fields():
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}/analysis")
+
+    body = response.json()
+    assert body["events"][0]["confidence"] is None
+    assert body["events"][0]["provenance"] == "drumscript"
+
+
 def test_get_analysis_returns_409_when_job_not_yet_tempo_mapped():
     app.dependency_overrides[get_transcriber] = lambda: FailingTranscriber()
 
@@ -253,6 +266,7 @@ def test_get_diagnostics_returns_traced_events_when_job_is_tempo_mapped():
     assert body["events"][0]["source_time"] == 0.5
     assert body["events"][0]["measure"] is not None
     assert isinstance(body["events"][0]["quantization_error_seconds"], float)
+    assert body["events"][0]["provenance"] == "drumscript"
 
 
 def test_get_diagnostics_uses_beat_anchored_reconstruction():

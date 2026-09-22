@@ -324,3 +324,62 @@ fixture, so a regression test is cheap to add alongside the fix.
 
 **Deferred:** out of scope for V1-011 (#44) - tracked here for a follow-up
 GitHub issue against Epic 2/3 diagnostics tooling.
+
+---
+
+## Benchmark corpus's synthetic audio doesn't exercise DrumScript's classifier realistically
+
+**Found in:** V1-016 (#49) post-processing investigation
+
+The Epic 3 benchmark corpus (`backend/tests/fixtures/benchmark_corpus.py`)
+synthesizes each instrument as either an enveloped sine tone (kick, toms
+- same exponential decay envelope as the noise-based instruments, only
+the carrier waveform differs) or white noise with an exponential decay
+envelope (snare, hi-hats, crash, ride) - deliberately simple and
+copyright-free, following the existing
+`diagnostic_songs.py` pattern. Running the real `DrumScriptTranscriber`
+against this corpus (`backend/tests/test_transcription_benchmark.py`)
+measured a corpus-wide F1 of only 0.0671, with near-total non-detection
+of the sine-tone instruments (kick, toms) and systematic misclassification
+among the noise-based instruments (e.g. `ride_groove`'s real ride pattern
+is overwhelmingly predicted as crash or hi-hat-open instead of ride) - see
+`docs/transcription-post-processing-investigation.md` for the full
+per-song breakdown.
+
+This number should not be read as "DrumScript is a poor transcriber" -
+DrumScript's rule-based physics classifier (peak frequency, spectral
+centroid, energy ratios, decay) was tuned against real drum recordings,
+whose transients have broadband, non-stationary spectral content that a
+clean sine tone or flat-spectrum noise burst doesn't reproduce. The
+benchmark corpus is honest about measuring *this specific synthetic
+corpus's* accuracy, which is what issues #45/#46 asked for, but it is not
+a proxy for DrumScript's real-world accuracy on actual recordings.
+
+**Fix would involve:** run DrumScript against **IDMT-SMT-Drums**, a
+published, ground-truth-labelled dataset of real drum recordings that
+`drumscript`'s own package already ships a loader for
+(`drumscript/datasets/idmt.py` in the installed package - handles both
+the dataset's XML and Sonic Visualiser SVL annotation formats, and maps
+its `RealDrum`/`WaveDrum`/`TechnoDrum` subsets' onsets to `kick`/`snare`/
+`hi_hat_closed`+`hi_hat_open`). This gives a real accuracy number against
+real transients instead of a synthetic proxy - PROJECT.md's own Quality
+gates rule ("audio/ML work requires representative real-song fixtures in
+addition to unit tests") isn't satisfied by the synthetic corpus alone.
+Coverage is narrower than this project's 9-instrument taxonomy (no toms,
+crash, or ride in IDMT), so it complements rather than replaces the
+synthetic corpus. Needs: downloading/extracting the dataset separately
+(verify its license permits this project's use before committing any of
+it or derived fixtures to the repo) and a new benchmark path that feeds
+`drumscript.datasets.idmt`'s onsets through this project's own
+`app/benchmark.py` metrics (not `drumscript`'s own benchmark CLI, to keep
+metrics computed one way across both the synthetic and real corpora).
+If IDMT ever proves insufficient on its own, a second, complementary
+option remains: synthesizing instrument sounds from short real one-shot
+samples (licensed/royalty-free drum hit samples) layered at known times
+in this project's own corpus format, giving full 9-instrument coverage
+with real transients.
+
+**Deferred:** out of scope for #49 - the corpus as built already satisfies
+#45/#46's acceptance criteria (repeatable, labelled, documented tolerance,
+multiple groove styles); this entry exists so a future reader doesn't
+misread the low absolute F1 number as a DrumScript quality problem.

@@ -286,6 +286,8 @@ class DrumEventResponse(BaseModel):
     id: str
     time: float
     instrument: DrumInstrument
+    confidence: float | None = None
+    provenance: str | None = None
     measure: int | None = None
     beat: int | None = None
     subdivision: int | None = None
@@ -296,6 +298,8 @@ class DrumEventResponse(BaseModel):
             id=event.id,
             time=event.time,
             instrument=event.instrument,
+            confidence=event.confidence,
+            provenance=event.provenance,
             measure=event.measure,
             beat=event.beat,
             subdivision=event.subdivision,
@@ -332,6 +336,7 @@ class EventDiagnosticResponse(BaseModel):
     source_time: float
     velocity: float | None = None
     confidence: float | None = None
+    provenance: str | None = None
     measure: int | None = None
     beat: int | None = None
     subdivision: int | None = None
@@ -346,6 +351,7 @@ class EventDiagnosticResponse(BaseModel):
             source_time=diagnostic.source_time,
             velocity=diagnostic.velocity,
             confidence=diagnostic.confidence,
+            provenance=diagnostic.provenance,
             measure=diagnostic.measure,
             beat=diagnostic.beat,
             subdivision=diagnostic.subdivision,

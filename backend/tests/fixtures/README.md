@@ -50,6 +50,42 @@ unverifiable transcription.
 ## Adding a new fixture
 
 1. Add a `_build_<name>()` function returning a `DiagnosticSong`, using
-   `_steady_rock_beat(...)` or building `ExpectedHit`s directly.
+   `steady_rock_beat(...)` or building `ExpectedHit`s directly.
 2. Register it in `_BUILDERS` in `diagnostic_songs.py`.
 3. Document it in the table above.
+
+---
+
+# Transcription-accuracy benchmark corpus
+
+Synthetic fixtures used by EPIC 3 (Transcription Engine 2.0, #30) to
+measure `DrumTranscriber` accuracy per instrument - a different purpose
+from the diagnostic songs above (which target *timing* edge cases, not
+classification accuracy). Same underlying `DiagnosticSong`/`ExpectedHit`
+machinery, imported from `diagnostic_songs.py` rather than duplicated;
+lives in its own module, `benchmark_corpus.py`, because it's a distinct
+consumer with its own six songs.
+
+## Usage
+
+```python
+from tests.fixtures.benchmark_corpus import get_benchmark_song, list_benchmark_songs
+```
+
+Same API shape as `diagnostic_songs.py`'s `get_diagnostic_song`/
+`list_diagnostic_songs`.
+
+## Songs
+
+| key | groove style | instruments exercised |
+|---|---|---|
+| `straight_rock` | steady quarter-note kick/snare backbeat, closed hi-hat eighths | kick, snare, hihat_closed |
+| `syncopated_funk` | off-beat kick (1, &2, &3), open hi-hat accent | kick, snare, hihat_closed, hihat_open |
+| `double_kick` | fast (160 BPM) eighth-note kick pattern | kick, snare, hihat_closed |
+| `tom_fill_crash` | descending tom fill resolving on crash+kick | tom_high, tom_mid, tom_low, crash, kick |
+| `ride_groove` | ride-cymbal-driven groove instead of hi-hat | ride, kick, snare |
+| `full_kit_mixed` | verse + ride chorus + tom fill, touching every instrument in one song | all 9 `DrumInstrument` values |
+
+Timing match tolerance for comparing a transcriber's output against this
+corpus's ground truth is `DEFAULT_MATCH_TOLERANCE_SECONDS` (±50ms) in
+`app/benchmark.py`.

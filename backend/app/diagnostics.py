@@ -16,6 +16,7 @@ class EventDiagnostic:
     source_time: float
     velocity: float | None
     confidence: float | None
+    provenance: str | None
     tempo_bpm: float
     measure: int | None
     beat: int | None
@@ -62,6 +63,7 @@ def build_event_diagnostics(
                 source_time=raw_event.time,
                 velocity=raw_event.velocity,
                 confidence=raw_event.confidence,
+                provenance=raw_event.provenance,
                 tempo_bpm=tempo_bpm,
                 measure=measure,
                 beat=beat,

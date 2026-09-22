@@ -6,7 +6,7 @@ Turn the working MVP into a stable, production-quality drum-practice product. A 
 ## Current baseline
 The MVP already provides Next.js/React/TypeScript, FastAPI/Python, yt-dlp + ffmpeg extraction, Demucs stem separation, DrumScript transcription, librosa tempo estimation, VexFlow notation, Web Audio playback, independent drum volume, retry/cleanup/concurrency limits and automated tests.
 
-The major v1.0 limitations are architectural: one scalar BPM per song; a quantization grid anchored at t=0 without downbeat/phase alignment; rendered timing reconstructed from the grid rather than source timestamps; every hit represented as a sixteenth note; limited DrumScript classification quality and no useful confidence values; unresolved playhead jumping/AbortError; and MVP-only in-process jobs/local artifact storage.
+The major v1.0 limitations are architectural: one scalar BPM per song; a quantization grid anchored at t=0 without downbeat/phase alignment; rendered timing reconstructed from the grid rather than source timestamps; every hit represented as a sixteenth note; limited DrumScript classification quality and no useful confidence values (see docs/transcription-engine-evaluation.md and docs/transcription-post-processing-investigation.md for the Epic 3 measurement/evaluation work this limitation prompted); unresolved playhead jumping/AbortError; and MVP-only in-process jobs/local artifact storage.
 
 ## Non-negotiable engineering rules
 1. Source audio time is authoritative. Every DrumEvent retains its original absolute source timestamp.
@@ -38,7 +38,9 @@ Exit gate: complete songs stay aligned despite silence/count-ins, human timing a
 ### Epic 3 — Transcription Engine 2.0
 Build a labelled benchmark, measure per-instrument accuracy, compare candidate engines, add real confidence support, choose/tune the production strategy and add defensible post-processing.
 
-Exit gate: selected transcription strategy has documented measured quality and materially improves on the MVP baseline.
+Exit gate: selected transcription strategy has documented measured quality and materially improves on the MVP baseline. Delivered via a synthetic benchmark corpus and per-instrument metrics harness (`backend/app/benchmark.py`), a desk-research evaluation of alternative engines (`docs/transcription-engine-evaluation.md`, no swap recommended), confidence/provenance semantics on `DrumEvent`, and a benchmark-driven post-processing investigation (`docs/transcription-post-processing-investigation.md`) that found no change justified - `DrumScriptTranscriber` remains the production engine, now with measured, documented accuracy instead of an unverified assumption.
+
+Deferred follow-up: the corpus above is entirely synthetic (see TECHNICAL_DEBT.md, "Benchmark corpus's synthetic audio doesn't exercise DrumScript's classifier realistically"), so it doesn't yet satisfy this document's own Quality gates rule that "audio/ML work requires representative real-song fixtures in addition to unit tests." A real-audio validation pass against IDMT-SMT-Drums - a published, ground-truth-labelled real-drum-recording dataset that DrumScript's own package already ships a loader for (`drumscript/datasets/idmt.py`; kick/snare/hi-hat coverage only, no toms/cymbals) - has not yet been run and would give a real measured accuracy number instead of the synthetic corpus's proxy.
 
 ### Epic 4 — Notation Engine 2.0
 Replace the dense sixteenth-note event grid with musically readable notation: note-duration consolidation, correct beams/grouping, improved hi-hat notation, dynamic layout, timestamp-linked rendered events and visual/reference regression tests.

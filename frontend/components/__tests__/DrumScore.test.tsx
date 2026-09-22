@@ -1,7 +1,36 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 
 import type { AnalysisEvent } from "@/lib/api/jobs";
 import DrumScore from "../DrumScore";
+
+function installFakeResizeObserver() {
+  const registry = new Map<Element, ResizeObserverCallback>();
+
+  class FakeResizeObserver {
+    constructor(private callback: ResizeObserverCallback) {}
+    observe(target: Element) {
+      registry.set(target, this.callback);
+    }
+    unobserve(target: Element) {
+      registry.delete(target);
+    }
+    disconnect() {}
+  }
+
+  const original = global.ResizeObserver;
+  global.ResizeObserver = FakeResizeObserver;
+
+  return {
+    resize(target: Element, width: number) {
+      Object.defineProperty(target, "clientWidth", { value: width, configurable: true });
+      const callback = registry.get(target);
+      callback?.([{ target, contentRect: { width } } as ResizeObserverEntry], undefined as unknown as ResizeObserver);
+    },
+    restore() {
+      global.ResizeObserver = original;
+    },
+  };
+}
 
 function event(overrides: Partial<AnalysisEvent>): AnalysisEvent {
   return {
@@ -101,24 +130,48 @@ describe("DrumScore", () => {
   });
 
   it("should auto-scroll the container horizontally to keep the playhead in view", () => {
-    const events = [
-      event({ id: "1", measure: 1, beat: 1, subdivision: 0, time: 0 }),
-      event({ id: "2", measure: 4, beat: 4, subdivision: 3, time: 8 }),
-    ];
+    // Adaptive layout sizes rows from the container's real clientWidth at
+    // mount, so it must be mocked wide (as a real browser's would be) before
+    // rendering - a narrow-container layout would place measure 4 close
+    // enough to x=0 that no scroll would be needed at all.
+    // jsdom defines clientWidth on Element.prototype, not HTMLElement.prototype
+    // - getOwnPropertyDescriptor on HTMLElement.prototype would find nothing
+    // to restore, permanently leaking this mock into every later test in the
+    // file. Mock (and restore) it where it's actually defined.
+    const originalDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth");
+    Object.defineProperty(Element.prototype, "clientWidth", { value: 2000, configurable: true });
 
-    const { rerender } = render(<DrumScore currentTime={0} events={events} />);
+    try {
+      const events = [
+        event({ id: "1", measure: 1, beat: 1, subdivision: 0, time: 0 }),
+        event({ id: "2", measure: 4, beat: 4, subdivision: 3, time: 8 }),
+      ];
 
-    const container = screen.getByTestId("drum-score");
-    Object.defineProperty(container, "clientWidth", { value: 200, configurable: true });
-    container.scrollLeft = 0;
+      const { rerender } = render(<DrumScore currentTime={0} events={events} />);
 
-    rerender(<DrumScore currentTime={8} events={events} />);
+      const container = screen.getByTestId("drum-score");
+      // Narrows just the container's own clientWidth for the auto-scroll
+      // viewport calculation itself (read live on every currentTime update),
+      // independent of the wide mount-time layout width above.
+      Object.defineProperty(container, "clientWidth", { value: 200, configurable: true });
+      container.scrollLeft = 0;
 
-    expect(container.scrollLeft).toBeGreaterThan(0);
+      rerender(<DrumScore currentTime={8} events={events} />);
+
+      expect(container.scrollLeft).toBeGreaterThan(0);
+    } finally {
+      if (originalDescriptor) {
+        Object.defineProperty(Element.prototype, "clientWidth", originalDescriptor);
+      } else {
+        delete (Element.prototype as { clientWidth?: number }).clientWidth;
+      }
+    }
   });
 
   it("should never move the playhead backward in x while stepping through a real multi-row score", () => {
-    // MEASURES_PER_ROW is 4, so measure 5 starts a second row.
+    // With no container width mocked, jsdom's clientWidth stays 0, so adaptive
+    // layout's greedy packer places every measure on its own row - measure 5
+    // still lands on a different row than measure 4, just not row 1 anymore.
     const lastRowZeroTime = 3.95;
     const firstRowOneTime = 4.2;
     const events = [
@@ -211,5 +264,47 @@ describe("DrumScore", () => {
     const stems = container.querySelectorAll(".vf-stem");
 
     expect(stems.length).toBe(4);
+  });
+
+  it("should reflow into more rows (a taller score) when the container becomes narrower after a resize", () => {
+    const fakeResizeObserver = installFakeResizeObserver();
+    try {
+      const events = Array.from({ length: 8 }, (_, i) =>
+        event({ id: String(i), measure: i + 1, beat: 1, subdivision: 0, time: i }),
+      );
+
+      render(<DrumScore events={events} />);
+      const container = screen.getByTestId("drum-score");
+
+      act(() => {
+        fakeResizeObserver.resize(container, 2000);
+      });
+      const wideHeight = Number(container.querySelector("svg")!.getAttribute("height"));
+
+      act(() => {
+        fakeResizeObserver.resize(container, 250);
+      });
+      const narrowHeight = Number(container.querySelector("svg")!.getAttribute("height"));
+
+      expect(narrowHeight).toBeGreaterThan(wideHeight);
+    } finally {
+      fakeResizeObserver.restore();
+    }
+  });
+
+  it("should not rebuild the score when only currentTime changes, keeping row breaks stable during playback", () => {
+    const events = [
+      event({ id: "1", measure: 1, beat: 1, subdivision: 0, time: 0 }),
+      event({ id: "2", measure: 2, beat: 1, subdivision: 0, time: 1 }),
+    ];
+
+    const { rerender } = render(<DrumScore currentTime={0} events={events} />);
+    const container = screen.getByTestId("drum-score");
+    const svgBefore = container.querySelector("svg");
+
+    rerender(<DrumScore currentTime={0.5} events={events} />);
+    const svgAfter = container.querySelector("svg");
+
+    expect(svgAfter).toBe(svgBefore);
   });
 });

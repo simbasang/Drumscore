@@ -86,54 +86,28 @@ export function consolidateRests(slots: Slot[]): Slot[] {
 // of measure), quantized down to the largest metrically-valid value - not a
 // fixed sixteenth.
 export function consolidateDurations(slots: Slot[]): Slot[] {
-  // Collect all note positions (sixteenth indices) for gap calculation
-  const noteIndices = new Set<number>();
-  for (const slot of slots) {
-    if (slot.type === "note") {
-      noteIndices.add(toSixteenthIndex(slot.position));
-    }
-  }
-
-  return consolidateRests(extendNoteDurations(slots, noteIndices));
+  return consolidateRests(extendNoteDurations(slots));
 }
 
-function extendNoteDurations(slots: Slot[], noteIndices: Set<number>): Slot[] {
-  const sortedNoteIndices = Array.from(noteIndices).sort((a, b) => a - b);
+function extendNoteDurations(slots: Slot[]): Slot[] {
   const result: Slot[] = [];
-  const consumedIndices = new Set<number>();
   let i = 0;
 
   while (i < slots.length) {
     const slot = slots[i];
     if (slot.type !== "note") {
-      // Only include rests that aren't consumed by a preceding note's extension
-      if (!consumedIndices.has(toSixteenthIndex(slot.position))) {
-        result.push(slot);
-      }
+      result.push(slot);
       i++;
       continue;
     }
 
-    const sixteenthIndex = toSixteenthIndex(slot.position);
-
-    // Count immediately-following rest slots in the array
     let restRun = 0;
     while (i + 1 + restRun < slots.length && slots[i + 1 + restRun].type === "rest") {
       restRun++;
     }
 
-    // Determine capacity: either from following rests, or gap to next note
-    let capacity: number;
-    if (restRun > 0) {
-      // Extend to absorb following rests
-      capacity = 1 + restRun;
-    } else {
-      // No immediate rests - look for gap to next note (or end of measure)
-      const nextNoteIndex =
-        sortedNoteIndices.find((idx) => idx > sixteenthIndex) ?? 16;
-      capacity = nextNoteIndex - sixteenthIndex;
-    }
-
+    const sixteenthIndex = toSixteenthIndex(slot.position);
+    const capacity = 1 + restRun;
     // The smallest entry (1 sixteenth) always matches, since sixteenthIndex % 1
     // is always 0 and capacity is always >= 1 - .find() can never fall through.
     const size = DURATION_SIZES_SIXTEENTHS.find(
@@ -141,14 +115,7 @@ function extendNoteDurations(slots: Slot[], noteIndices: Set<number>): Slot[] {
     )!;
 
     result.push({ ...slot, duration: size.duration });
-
-    // Mark all sixteenth indices covered by this note's duration as consumed
-    for (let j = sixteenthIndex + 1; j < sixteenthIndex + size.sixteenths; j++) {
-      consumedIndices.add(j);
-    }
-
-    // Advance i past the note and any consumed rests
-    i += 1 + restRun;
+    i += size.sixteenths;
   }
 
   return result;

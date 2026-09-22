@@ -135,7 +135,21 @@ describe("consolidateDurations", () => {
   });
 
   it("should turn four quarter-spaced hits into four quarter notes", () => {
-    const slots: Measure = [0, 4, 8, 12].map((index) => note(1, ...positionParts(index)));
+    // Four notes spaced 4 sixteenths apart (quarter notes), with rests between them.
+    // Fully-expanded measure: note@0 + rest@1-3 + note@4 + rest@5-7 + note@8 + rest@9-11 + note@12 + rest@13-15
+    const slots: Measure = [];
+    for (let i = 0; i < 16; i++) {
+      if (i % 4 === 0) {
+        slots.push(note(1, ...positionParts(i)));
+      } else {
+        slots.push({
+          type: "rest" as const,
+          id: `r${i}`,
+          duration: "16",
+          position: toPosition(1, i),
+        });
+      }
+    }
 
     const result = consolidateDurations(slots);
 
@@ -144,7 +158,21 @@ describe("consolidateDurations", () => {
   });
 
   it("should turn eight eighth-spaced hits into eight eighth notes", () => {
-    const slots: Measure = [0, 2, 4, 6, 8, 10, 12, 14].map((index) => note(1, ...positionParts(index)));
+    // Eight notes spaced 2 sixteenths apart (eighth notes), with rests between them.
+    // Fully-expanded measure: note@0 + rest@1 + note@2 + rest@3 + ... + note@14 + rest@15
+    const slots: Measure = [];
+    for (let i = 0; i < 16; i++) {
+      if (i % 2 === 0) {
+        slots.push(note(1, ...positionParts(i)));
+      } else {
+        slots.push({
+          type: "rest" as const,
+          id: `r${i}`,
+          duration: "16",
+          position: toPosition(1, i),
+        });
+      }
+    }
 
     const result = consolidateDurations(slots);
 
@@ -153,12 +181,28 @@ describe("consolidateDurations", () => {
   });
 
   it("should leave adjacent sixteenth-spaced hits as sixteenth notes", () => {
-    const slots: Measure = [0, 1, 2, 3].map((index) => note(1, ...positionParts(index)));
+    // Four consecutive notes with no rests between them (adjacent sixteenth notes).
+    const slots: Measure = [];
+    for (let i = 0; i < 4; i++) {
+      slots.push(note(1, ...positionParts(i)));
+    }
+    // Fill the rest of the measure with rests
+    for (let i = 4; i < 16; i++) {
+      slots.push({
+        type: "rest" as const,
+        id: `r${i}`,
+        duration: "16",
+        position: toPosition(1, i),
+      });
+    }
 
     const result = consolidateDurations(slots);
 
-    expect(result).toHaveLength(4);
-    expect(result.every((slot) => slot.type === "note" && slot.duration === "16")).toBe(true);
+    // Result should start with 4 sixteenth notes, then consolidated rests
+    expect(result[0]).toMatchObject({ type: "note", duration: "16" });
+    expect(result[1]).toMatchObject({ type: "note", duration: "16" });
+    expect(result[2]).toMatchObject({ type: "note", duration: "16" });
+    expect(result[3]).toMatchObject({ type: "note", duration: "16" });
   });
 
   it("should cap a note's extension at the alignment boundary instead of overrunning into a misaligned duration", () => {
@@ -167,10 +211,16 @@ describe("consolidateDurations", () => {
     // 2 but not of 4/8/16), even though 13 trailing rests would otherwise fit a
     // much longer duration.
     const slots: Measure = [
+      ...Array.from({ length: 2 }, (_, i) => ({
+        type: "rest" as const,
+        id: `r${i}`,
+        duration: "16",
+        position: toPosition(1, i),
+      })),
       note(1, 1, 2),
       ...Array.from({ length: 13 }, (_, i) => ({
         type: "rest" as const,
-        id: `r${i}`,
+        id: `r${i + 2}`,
         duration: "16",
         position: toPosition(1, i + 3),
       })),
@@ -178,7 +228,14 @@ describe("consolidateDurations", () => {
 
     const result = consolidateDurations(slots);
 
-    expect(result[0]).toMatchObject({ type: "note", duration: "8" });
+    expect(result).toContainEqual(expect.objectContaining({ type: "note", duration: "8" }));
+
+    // Regression test: verify unconsumed trailing rests are not silently dropped.
+    // The note extends 2 sixteenths (index 2-3), leaving 12 rest sixteenths
+    // (indices 4-15) that should consolidate and appear in the result.
+    const durationMap: Record<string, number> = { "1": 16, "2": 8, "4": 4, "8": 2, "16": 1 };
+    const totalSixteenths = result.reduce((sum, slot) => sum + durationMap[slot.duration], 0);
+    expect(totalSixteenths).toBe(16);
   });
 
   it("should preserve every hit's id, sourceEventId, and time when extending a note's duration", () => {

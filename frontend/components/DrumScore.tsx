@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { Beam, Formatter, Fraction, Renderer, Stave, Voice } from "vexflow";
 
 import type { AnalysisEvent } from "@/lib/api/jobs";
-import { buildMeasures } from "@/lib/notation/buildScore";
+import { fromAnalysisEvents } from "@/lib/score/buildScore";
 import { buildStaveNote } from "@/lib/notation/buildStaveNote";
 import { computeAutoScrollLeft, interpolatePlayheadX, type TimelinePoint } from "@/lib/notation/timeline";
 
@@ -39,7 +39,7 @@ export default function DrumScore({ events, currentTime }: DrumScoreProps) {
     container.innerHTML = "";
     timelineRef.current = [];
 
-    const measures = buildMeasures(events);
+    const { measures } = fromAnalysisEvents(events);
     if (measures.length === 0) {
       return;
     }
@@ -92,8 +92,12 @@ export default function DrumScore({ events, currentTime }: DrumScoreProps) {
         if (slot.type !== "note") {
           return;
         }
+        const times = slot.hits.map((hit) => hit.time).filter((time): time is number => time != null);
+        if (times.length === 0) {
+          return;
+        }
         timelineRef.current.push({
-          time: averageSourceTime(slot.sourceTimes),
+          time: averageSourceTime(times),
           x: note.getAbsoluteX(),
           row,
         });

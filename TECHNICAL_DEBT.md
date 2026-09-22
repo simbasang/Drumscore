@@ -324,3 +324,44 @@ fixture, so a regression test is cheap to add alongside the fix.
 
 **Deferred:** out of scope for V1-011 (#44) - tracked here for a follow-up
 GitHub issue against Epic 2/3 diagnostics tooling.
+
+---
+
+## Benchmark corpus's synthetic audio doesn't exercise DrumScript's classifier realistically
+
+**Found in:** V1-016 (#49) post-processing investigation
+
+The Epic 3 benchmark corpus (`backend/tests/fixtures/benchmark_corpus.py`)
+synthesizes each instrument as either a pure sine tone (kick, toms) or
+white noise with an exponential decay envelope (snare, hi-hats, crash,
+ride) - deliberately simple and copyright-free, following the existing
+`diagnostic_songs.py` pattern. Running the real `DrumScriptTranscriber`
+against this corpus (`backend/tests/test_transcription_benchmark.py`)
+measured a corpus-wide F1 of only 0.0671, with near-total non-detection
+of the sine-tone instruments (kick, toms) and systematic misclassification
+among the noise-based instruments (e.g. `ride_groove`'s real ride pattern
+is overwhelmingly predicted as crash or hi-hat-open instead of ride) - see
+`docs/transcription-post-processing-investigation.md` for the full
+per-song breakdown.
+
+This number should not be read as "DrumScript is a poor transcriber" -
+DrumScript's rule-based physics classifier (peak frequency, spectral
+centroid, energy ratios, decay) was tuned against real drum recordings,
+whose transients have broadband, non-stationary spectral content that a
+clean sine tone or flat-spectrum noise burst doesn't reproduce. The
+benchmark corpus is honest about measuring *this specific synthetic
+corpus's* accuracy, which is what issues #45/#46 asked for, but it is not
+a proxy for DrumScript's real-world accuracy on actual recordings.
+
+**Fix would involve:** if a more realistic-audio benchmark becomes
+valuable later (e.g. to more meaningfully evaluate post-processing
+tweaks or a future candidate engine), synthesizing instrument sounds from
+short real one-shot samples (licensed/royalty-free drum hit samples)
+layered at known times, instead of pure sine/noise synthesis - preserving
+the corpus's existing copyright-safety and determinism properties while
+giving DrumScript's classifier real transient spectra to work with.
+
+**Deferred:** out of scope for #49 - the corpus as built already satisfies
+#45/#46's acceptance criteria (repeatable, labelled, documented tolerance,
+multiple groove styles); this entry exists so a future reader doesn't
+misread the low absolute F1 number as a DrumScript quality problem.

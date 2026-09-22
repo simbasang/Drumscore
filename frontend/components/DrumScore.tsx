@@ -69,13 +69,18 @@ export default function DrumScore({ events, currentTime }: DrumScoreProps) {
       stave.setContext(context).draw();
 
       const notes = measure.map(buildStaveNote);
+      // beams must be constructed before Formatter/voice.draw() - VexFlow's
+      // Beam constructor calls note.setBeam(this) internally, and StaveNote
+      // consults that beam reference (via shouldDrawFlag()) while formatting
+      // and drawing to suppress its own flag glyph and un-extended stem.
+      // Building beams after draw() left every beamed note flagged with a
+      // double stem underneath the beam. See TECHNICAL_DEBT.md / #52 review.
+      const beams = buildBeams(measure, notes);
       const voice = new Voice({ numBeats: 4, beatValue: 4 }).setStrict(false);
       voice.addTickables(notes);
 
       new Formatter().joinVoices([voice]).format([voice], MEASURE_WIDTH - 20);
       voice.draw(context, stave);
-
-      const beams = buildBeams(measure, notes);
       beams.forEach((beam) => beam.setContext(context).draw());
 
       notes.forEach((note, slotIndex) => {

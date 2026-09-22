@@ -439,3 +439,60 @@ power-of-two values.
 **Deferred:** out of scope for V1-018 - consistent with the pre-existing
 rest-consolidation behavior; revisit if real-groove testing shows this
 reads poorly.
+
+---
+
+## `BEAMABLE_DURATIONS` will need to grow in lockstep with dotted-duration support
+
+**Found in:** V1-019 (#52) final review
+
+`BEAMABLE_DURATIONS` (`frontend/lib/notation/beaming.ts`) is a string-exact
+`Set(["8", "16"])` that `isBeamable` checks a slot's `duration` against.
+It has no knowledge of dotted or tied duration strings - it doesn't need to
+today, because "Note/rest durations have no dotted or tied values" (the
+V1-018/#51 entry above) means `duration` never currently holds anything
+other than `"1"`/`"2"`/`"4"`/`"8"`/`"16"`. But when that debt is eventually
+resolved and dotted durations (e.g. `"8d"`/`"16d"`) start appearing,
+`BEAMABLE_DURATIONS`'s exact-string membership check will silently exclude
+them - a dotted eighth or sixteenth note would render unbeamed (correctly
+noteheaded and stemmed, just flagged on its own) instead of beamed with its
+neighbors. Not a crash, not even a wrong note - just a quiet notation-quality
+regression that's easy to miss because nothing errors.
+
+**Fix would involve:** extending `BEAMABLE_DURATIONS` (or switching
+`isBeamable` to a base-duration check that strips a trailing dot marker)
+whenever dotted/tied duration values are introduced, in the same change
+that introduces them.
+
+**Deferred:** no dotted durations exist yet (see the V1-018/#51 entry
+above), so there's nothing to fix today - recorded so the future change
+that adds dotted durations doesn't miss this call site.
+
+---
+
+## Beam grouping does not beam across an intra-beat rest
+
+**Found in:** V1-019 (#52) final review
+
+`computeBeamGroupIndices` (`frontend/lib/notation/beaming.ts`) flushes the
+current beam group whenever it encounters a rest, even a short rest fully
+inside a beat - e.g. an eighth note, a sixteenth rest, then a sixteenth
+note, all within one beat, renders as two separate unbeamed/flagged notes
+rather than one beam with a stemlet drawn over the rest. This matches the
+pre-existing VexFlow call this branch replaced (`Beam.generateBeams` was
+invoked with `beamRests: false`), so it isn't a regression introduced by
+this branch. But conventional drum engraving often does beam across a
+short intra-beat rest (typically rendered as a stemlet), so this is a real,
+intentional simplification rather than an oversight, and worth recording as
+future engraving-quality work.
+
+**Fix would involve:** allowing `computeBeamGroupIndices` to include a
+rest slot inside an otherwise-beamable run (rather than flushing on any
+rest), and passing `beamRests: true` (plus VexFlow's stemlet options) to
+`Beam` construction in `buildBeams` for groups that contain one.
+
+**Deferred:** not part of V1-019/#52's acceptance criteria (which asked for
+conventional beaming of note runs, not rest-spanning beams); revisit if
+real-groove testing shows the current unbeamed-around-rests rendering reads
+poorly for common drum patterns (e.g. eighth-note-rest-eighth-note
+snare/hi-hat figures).

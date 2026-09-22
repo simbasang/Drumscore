@@ -125,6 +125,14 @@ describe("computeBeamGroupIndices", () => {
 
     expect(groups).toEqual([]);
   });
+
+  it("should group a mixed-duration beat (eighth then two sixteenths) into one beam", () => {
+    const measure: Measure = [note(1, 0, "8"), note(1, 2, "16"), note(1, 3, "16")];
+
+    const groups = computeBeamGroupIndices(measure);
+
+    expect(groups).toEqual([[0, 1, 2]]);
+  });
 });
 
 describe("buildBeams", () => {
@@ -162,6 +170,16 @@ describe("buildBeams", () => {
     const beams = buildBeams(measure, notes);
 
     expect(beams).toHaveLength(0);
+  });
+
+  it("should build one Beam covering a mixed-duration beat (eighth then two sixteenths)", () => {
+    const measure: Measure = [note(1, 0, "8"), note(1, 2, "16"), note(1, 3, "16")];
+    const notes = measure.map(buildStaveNote);
+
+    const beams = buildBeams(measure, notes);
+
+    expect(beams).toHaveLength(1);
+    expect(beams[0].getNotes()).toEqual([notes[0], notes[1], notes[2]]);
   });
 
   it("should keep every beamed note's stem pointing up", () => {

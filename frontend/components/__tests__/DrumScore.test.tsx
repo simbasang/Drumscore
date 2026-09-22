@@ -186,4 +186,30 @@ describe("DrumScore", () => {
 
     expect(beamGroups.length).toBe(2);
   });
+
+  it("should draw exactly one stem per beamed note, not a duplicate unbeamed stem underneath the beam", () => {
+    // Regression test for building Beams AFTER Formatter/voice.draw(): VexFlow's
+    // Beam constructor calls note.setBeam(this), and StaveNote only skips
+    // drawing its own (un-extended) stem when that beam reference is already
+    // set at draw time (see StaveNote.draw(): shouldRenderStem = hasStem() &&
+    // !this.beam). Building beams too late left every beamed note with two
+    // .vf-stem elements - its own short stem plus the beam's extended one.
+    // Verified empirically: with the buggy call order this count is 8 (2 per
+    // note x 4 notes); with beams built before Formatter/draw it is 4.
+    render(
+      <DrumScore
+        events={[
+          event({ id: "1", instrument: "hihat_closed", beat: 1, subdivision: 0, time: 0 }),
+          event({ id: "2", instrument: "hihat_closed", beat: 1, subdivision: 2, time: 0.25 }),
+          event({ id: "3", instrument: "hihat_closed", beat: 2, subdivision: 0, time: 0.5 }),
+          event({ id: "4", instrument: "hihat_closed", beat: 2, subdivision: 2, time: 0.75 }),
+        ]}
+      />,
+    );
+
+    const container = screen.getByTestId("drum-score");
+    const stems = container.querySelectorAll(".vf-stem");
+
+    expect(stems.length).toBe(4);
+  });
 });

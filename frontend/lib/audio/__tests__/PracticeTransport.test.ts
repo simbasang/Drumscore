@@ -20,6 +20,10 @@ class FakePlayer implements PlayerLike {
   getCurrentTime = jest.fn(() => 0);
   setPlaybackRate = jest.fn();
   getPlaybackRate = jest.fn(() => 1);
+  setMasterVolume = jest.fn();
+  getMasterVolume = jest.fn(() => 1);
+  setDrumsVolume = jest.fn();
+  getDrumsVolume = jest.fn(() => 1);
 }
 
 function fakeContext(): MetronomeContextLike {

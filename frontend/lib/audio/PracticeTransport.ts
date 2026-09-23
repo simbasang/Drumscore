@@ -30,6 +30,10 @@ export interface PlayerLike {
   getCurrentTime(): number;
   setPlaybackRate(rate: number): void;
   getPlaybackRate(): number;
+  setMasterVolume(value: number): void;
+  getMasterVolume(): number;
+  setDrumsVolume(value: number): void;
+  getDrumsVolume(): number;
 }
 
 export interface OscillatorNodeLike {
@@ -101,6 +105,22 @@ export class PracticeTransport {
 
   getPlaybackRate(): number {
     return this.player.getPlaybackRate();
+  }
+
+  setMasterVolume(value: number): void {
+    this.player.setMasterVolume(value);
+  }
+
+  getMasterVolume(): number {
+    return this.player.getMasterVolume();
+  }
+
+  setDrumsVolume(value: number): void {
+    this.player.setDrumsVolume(value);
+  }
+
+  getDrumsVolume(): number {
+    return this.player.getDrumsVolume();
   }
 
   tick(): number {

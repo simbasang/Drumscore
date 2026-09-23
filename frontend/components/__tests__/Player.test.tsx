@@ -385,7 +385,8 @@ describe("Player", () => {
     expect(playerInstance.seek).toHaveBeenCalledWith(3);
   });
 
-  it("should clear the loop when Clear loop is clicked", async () => {
+  it("should not wedge the transport when loop start and end are captured at the same currentTime", async () => {
+    const startLength = MockedSyncedPlayer.mock.instances.length;
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
@@ -394,8 +395,54 @@ describe("Player", () => {
         createAudioContext={fakeContextFactory}
       />,
     );
-    await screen.findByRole("button", { name: /play/i });
+    const playButton = await screen.findByRole("button", { name: /play/i });
+    const playerInstance = MockedSyncedPlayer.mock.instances[startLength];
+
+    // currentTime hasn't advanced (still 0, paused) - capturing loop start
+    // then immediately loop end yields a zero-length {0, 0} range. Without
+    // a minimum-length guard, every subsequent tick would see
+    // currentTime >= endTime and call player.seek() again, wedging the
+    // transport in a seek loop.
     fireEvent.click(screen.getByRole("button", { name: /set loop start/i }));
+    fireEvent.click(screen.getByRole("button", { name: /set loop end/i }));
+
+    expect(screen.queryByRole("button", { name: /clear loop/i })).not.toBeInTheDocument();
+
+    fireEvent.click(playButton);
+    act(() => {
+      rafCallback?.(0);
+    });
+
+    expect(playerInstance.seek).not.toHaveBeenCalled();
+  });
+
+  it("should clear the loop when Clear loop is clicked", async () => {
+    const startLength = MockedSyncedPlayer.mock.instances.length;
+    render(
+      <Player
+        apiBaseUrl="http://localhost:8000"
+        jobId="job-1"
+        events={[]}
+        createAudioContext={fakeContextFactory}
+      />,
+    );
+    const playButton = await screen.findByRole("button", { name: /play/i });
+    const playerInstance = MockedSyncedPlayer.mock.instances[startLength];
+
+    // Loop start/end must be captured at different currentTime values -
+    // otherwise the zero-length-range guard (see the "should not wedge the
+    // transport" test) discards it and "Clear loop" never appears.
+    fireEvent.click(playButton);
+    (playerInstance.getCurrentTime as jest.Mock).mockReturnValue(3);
+    act(() => {
+      rafCallback?.(0);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /set loop start/i }));
+
+    (playerInstance.getCurrentTime as jest.Mock).mockReturnValue(9);
+    act(() => {
+      rafCallback?.(0);
+    });
     fireEvent.click(screen.getByRole("button", { name: /set loop end/i }));
 
     fireEvent.click(screen.getByRole("button", { name: /clear loop/i }));
@@ -463,17 +510,48 @@ describe("Player", () => {
     expect(screen.getByRole("button", { name: /undo/i })).not.toBeDisabled();
   });
 
+  it("should clear a stale selectedHitId (and disable its dependent buttons) after undo removes the selected hit", async () => {
+    render(
+      <Player
+        apiBaseUrl="http://localhost:8000"
+        jobId="job-1"
+        events={[]}
+        createAudioContext={fakeContextFactory}
+      />,
+    );
+    await screen.findByRole("button", { name: /play/i });
+    const hitSelect = screen.getByLabelText(/select hit to edit/i);
+
+    fireEvent.click(screen.getByRole("button", { name: /^add hit$/i }));
+    const addedOption = within(hitSelect).getAllByRole("option")[1];
+    fireEvent.change(hitSelect, { target: { value: addedOption.getAttribute("value") } });
+
+    expect(screen.getByRole("button", { name: /delete hit/i })).not.toBeDisabled();
+
+    // Undo removes the hit that's currently selected - selectedHitId now
+    // points at a hit that no longer exists in the score.
+    fireEvent.click(screen.getByRole("button", { name: /undo/i }));
+
+    expect(hitSelect).toHaveValue("");
+    expect(screen.getByRole("button", { name: /delete hit/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /change instrument/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^move hit$/i })).toBeDisabled();
+  });
+
   it("should toggle the metronome checkbox on click", async () => {
     // PracticeTransport is real (only SyncedPlayer is mocked), so this spy
     // wraps the actual instance method - proving the checkbox really drives
-    // the transport, not just its own displayed checked state.
+    // the transport, not just its own displayed checked state. Beat data is
+    // required here since the checkbox is now disabled when beats is empty.
     const setMetronomeEnabledSpy = jest.spyOn(PracticeTransport.prototype, "setMetronomeEnabled");
+    const beats = [{ source_time: 0, measure: 1, beat: 1, is_downbeat: true, confidence: 1 }];
 
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
         jobId="job-1"
         events={[]}
+        beats={beats}
         createAudioContext={fakeContextFactoryWithOscillator}
       />,
     );
@@ -483,6 +561,21 @@ describe("Player", () => {
 
     expect(screen.getByLabelText(/metronome/i)).toBeChecked();
     expect(setMetronomeEnabledSpy).toHaveBeenCalledWith(true);
+  });
+
+  it("should disable the metronome checkbox when no beat data is available for the job", async () => {
+    render(
+      <Player
+        apiBaseUrl="http://localhost:8000"
+        jobId="job-1"
+        events={[]}
+        beats={[]}
+        createAudioContext={fakeContextFactoryWithOscillator}
+      />,
+    );
+    await screen.findByRole("button", { name: /play/i });
+
+    expect(screen.getByLabelText(/metronome/i)).toBeDisabled();
   });
 
   it("should start playback via count-in when the Count-in button is clicked", async () => {
@@ -508,31 +601,98 @@ describe("Player", () => {
     expect(playWithCountInSpy).toHaveBeenCalled();
   });
 
-  it("should disable Play/Pause and Count-in while a count-in is pending, so a click can't start overlapping playback", async () => {
-    // Two beats give countInClickTimes a non-zero period, so playWithCountIn
-    // schedules a real setTimeout instead of calling play() synchronously -
-    // this is the genuine "pending count-in" window the fix must guard.
-    const beats = [
-      { source_time: 0, measure: 1, beat: 1, is_downbeat: true, confidence: 1 },
-      { source_time: 0.5, measure: 1, beat: 2, is_downbeat: false, confidence: 1 },
-    ];
-
+  it("should disable Count-in while already playing, not just while counting in", async () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
         jobId="job-1"
         events={[]}
-        beats={beats}
-        createAudioContext={fakeContextFactoryWithOscillator}
+        createAudioContext={fakeContextFactory}
       />,
     );
-    await screen.findByRole("button", { name: /play/i });
+    const playButton = await screen.findByRole("button", { name: /play/i });
 
-    fireEvent.click(screen.getByRole("button", { name: /count-in/i }));
+    fireEvent.click(playButton);
 
-    const playPauseButton = await screen.findByRole("button", { name: /pause/i });
-    expect(playPauseButton).toBeDisabled();
+    expect(await screen.findByRole("button", { name: /pause/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /count-in/i })).toBeDisabled();
+  });
+
+  it("should disable Play/Pause and Count-in while a count-in is pending, so a click can't start overlapping playback", async () => {
+    // Two beats give countInClickTimes a non-zero period, so playWithCountIn
+    // schedules a real setTimeout instead of calling play() synchronously -
+    // this is the genuine "pending count-in" window the fix must guard.
+    // Fake timers (matching PracticeTransport.test.ts's own pattern for its
+    // count-in tests) keep that scheduled timer from ever firing past this
+    // test, since it's never advanced or otherwise cleaned up here - a real
+    // timer firing during a later test could surface as a stray act()
+    // warning.
+    jest.useFakeTimers();
+    try {
+      const beats = [
+        { source_time: 0, measure: 1, beat: 1, is_downbeat: true, confidence: 1 },
+        { source_time: 0.5, measure: 1, beat: 2, is_downbeat: false, confidence: 1 },
+      ];
+
+      render(
+        <Player
+          apiBaseUrl="http://localhost:8000"
+          jobId="job-1"
+          events={[]}
+          beats={beats}
+          createAudioContext={fakeContextFactoryWithOscillator}
+        />,
+      );
+      await screen.findByRole("button", { name: /play/i });
+
+      fireEvent.click(screen.getByRole("button", { name: /count-in/i }));
+
+      const playPauseButton = await screen.findByRole("button", { name: /pause/i });
+      expect(playPauseButton).toBeDisabled();
+      expect(screen.getByRole("button", { name: /count-in/i })).toBeDisabled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("should not throw, and should never call play, when the component unmounts while a count-in is pending", async () => {
+    jest.useFakeTimers();
+    try {
+      const startLength = MockedSyncedPlayer.mock.instances.length;
+      const beats = [
+        { source_time: 0, measure: 1, beat: 1, is_downbeat: true, confidence: 1 },
+        { source_time: 0.5, measure: 1, beat: 2, is_downbeat: false, confidence: 1 },
+      ];
+
+      const { unmount } = render(
+        <Player
+          apiBaseUrl="http://localhost:8000"
+          jobId="job-1"
+          events={[]}
+          beats={beats}
+          createAudioContext={fakeContextFactoryWithOscillator}
+        />,
+      );
+      await screen.findByRole("button", { name: /play/i });
+      const playerInstance = MockedSyncedPlayer.mock.instances[startLength];
+
+      fireEvent.click(screen.getByRole("button", { name: /count-in/i }));
+      await screen.findByRole("button", { name: /pause/i });
+      (playerInstance.play as jest.Mock).mockClear();
+
+      // Unmounting before the count-in's setTimeout fires calls pause()
+      // (via the load effect's cleanup) then closes the AudioContext. If
+      // the pending count-in timer weren't cancelled, it would later call
+      // play() -> startSources() -> context.createBufferSource() on an
+      // already-closed context, throwing from inside a timer callback -
+      // unrecoverable, outside any React error boundary.
+      expect(() => unmount()).not.toThrow();
+
+      expect(() => jest.advanceTimersByTime(10000)).not.toThrow();
+      expect(playerInstance.play).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   describe("correction editor position inputs", () => {

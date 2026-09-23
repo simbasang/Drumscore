@@ -142,6 +142,14 @@ export default function DrumScore({ score, currentTime, onSeek }: DrumScoreProps
         }
       });
     });
+
+    // Points are pushed in layout order (measure index -> slot index within
+    // measure), not time order. moveHit legitimately preserves a hit's
+    // immutable source time while changing its musical/layout position, so
+    // a later-time hit can end up earlier in this array than an
+    // earlier-time hit. interpolatePlayheadX assumes/requires its points to
+    // be time-ordered - restore that invariant here.
+    timelineRef.current.sort((a, b) => a.time - b.time);
   }, [score, containerWidth, onSeek]);
 
   useEffect(() => {
@@ -177,7 +185,14 @@ export default function DrumScore({ score, currentTime, onSeek }: DrumScoreProps
     line.setAttribute("y2", String(yBottom));
 
     container.scrollLeft = computeAutoScrollLeft(container.scrollLeft, container.clientWidth, point.x);
-  }, [currentTime]);
+    // score and containerWidth are included so that editing the score (or
+    // resizing) while paused - which the layout effect above handles by
+    // wiping and rebuilding container.innerHTML, destroying the playhead
+    // line - redraws the playhead immediately instead of leaving it gone
+    // until currentTime next changes (i.e. until playback resumes). Effects
+    // run in declaration order within a commit, so by the time this effect
+    // runs, timelineRef.current already reflects the freshly-rebuilt layout.
+  }, [currentTime, score, containerWidth]);
 
   return (
     <div

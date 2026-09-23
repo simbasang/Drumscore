@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useReducer } from "react";
 
 import type { AnalysisEvent, DrumInstrument } from "@/lib/api/jobs";
 import { fromAnalysisEvents } from "./buildScore";
@@ -67,11 +67,73 @@ export interface ScoreEditor {
   canRedo: boolean;
 }
 
+interface EditorState {
+  score: Score;
+  undoStack: Score[];
+  redoStack: Score[];
+  trackedEvents: AnalysisEvent[];
+}
+
+type EditorAction =
+  | { type: "apply-edit"; next: Score }
+  | { type: "undo" }
+  | { type: "redo" }
+  | { type: "reset"; events: AnalysisEvent[]; score: Score };
+
+// A pure reducer: every branch derives the next state only from (state,
+// action), with no nested setState-as-a-side-effect calls. React's Strict
+// Mode deliberately invokes reducers twice in development to catch exactly
+// that kind of impurity - the previous nested-setState version of undo/redo
+// each triggered a second state update as a side effect of computing the
+// first, so double-invocation pushed the same score onto the other stack
+// twice per call.
+function editorReducer(state: EditorState, action: EditorAction): EditorState {
+  switch (action.type) {
+    case "apply-edit":
+      return {
+        ...state,
+        score: action.next,
+        undoStack: [...state.undoStack, state.score],
+        redoStack: [],
+      };
+    case "undo": {
+      if (state.undoStack.length === 0) {
+        return state;
+      }
+      const previous = state.undoStack[state.undoStack.length - 1];
+      return {
+        ...state,
+        score: previous,
+        undoStack: state.undoStack.slice(0, -1),
+        redoStack: [...state.redoStack, state.score],
+      };
+    }
+    case "redo": {
+      if (state.redoStack.length === 0) {
+        return state;
+      }
+      const next = state.redoStack[state.redoStack.length - 1];
+      return {
+        ...state,
+        score: next,
+        redoStack: state.redoStack.slice(0, -1),
+        undoStack: [...state.undoStack, state.score],
+      };
+    }
+    case "reset":
+      return { score: action.score, undoStack: [], redoStack: [], trackedEvents: action.events };
+    default:
+      return state;
+  }
+}
+
+function initEditorState(initialEvents: AnalysisEvent[]): EditorState {
+  return { score: buildInitialScore(initialEvents), undoStack: [], redoStack: [], trackedEvents: initialEvents };
+}
+
 export function useScoreEditor(events: AnalysisEvent[]): ScoreEditor {
-  const [score, setScore] = useState<Score>(() => buildInitialScore(events));
-  const [undoStack, setUndoStack] = useState<Score[]>([]);
-  const [redoStack, setRedoStack] = useState<Score[]>([]);
-  const [trackedEvents, setTrackedEvents] = useState(events);
+  const [state, dispatch] = useReducer(editorReducer, events, initEditorState);
+  const { score, undoStack, redoStack } = state;
 
   // Re-baselines when a genuinely new job's events arrive (a different
   // AnalysisEvent[] content, per sameEvents above) - there is nothing to
@@ -81,17 +143,12 @@ export function useScoreEditor(events: AnalysisEvent[]): ScoreEditor {
   // during render): detected and applied synchronously during render, so
   // the very first render (trackedEvents initialized to the same `events`
   // reference) never redundantly rebuilds.
-  if (!sameEvents(trackedEvents, events)) {
-    setTrackedEvents(events);
-    setScore(buildInitialScore(events));
-    setUndoStack([]);
-    setRedoStack([]);
+  if (!sameEvents(state.trackedEvents, events)) {
+    dispatch({ type: "reset", events, score: buildInitialScore(events) });
   }
 
   function applyEdit(next: Score): void {
-    setUndoStack((stack) => [...stack, score]);
-    setRedoStack([]);
-    setScore(next);
+    dispatch({ type: "apply-edit", next });
   }
 
   return {
@@ -100,28 +157,8 @@ export function useScoreEditor(events: AnalysisEvent[]): ScoreEditor {
     deleteHit: (hitId) => applyEdit(deleteHit(score, hitId)),
     moveHit: (hitId, newPosition) => applyEdit(moveHit(score, hitId, newPosition)),
     changeInstrument: (hitId, newInstrument) => applyEdit(changeInstrument(score, hitId, newInstrument)),
-    undo: () => {
-      setUndoStack((stack) => {
-        if (stack.length === 0) {
-          return stack;
-        }
-        const previous = stack[stack.length - 1];
-        setRedoStack((redo) => [...redo, score]);
-        setScore(previous);
-        return stack.slice(0, -1);
-      });
-    },
-    redo: () => {
-      setRedoStack((stack) => {
-        if (stack.length === 0) {
-          return stack;
-        }
-        const next = stack[stack.length - 1];
-        setUndoStack((undo) => [...undo, score]);
-        setScore(next);
-        return stack.slice(0, -1);
-      });
-    },
+    undo: () => dispatch({ type: "undo" }),
+    redo: () => dispatch({ type: "redo" }),
     canUndo: undoStack.length > 0,
     canRedo: redoStack.length > 0,
   };

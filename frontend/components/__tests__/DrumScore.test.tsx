@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
 import type { AnalysisEvent } from "@/lib/api/jobs";
 import { fromAnalysisEvents } from "@/lib/score/buildScore";
@@ -283,6 +283,74 @@ describe("DrumScore", () => {
     const svgAfter = container.querySelector("svg");
 
     expect(svgAfter).toBe(svgBefore);
+  });
+
+  it("should keep the playhead visible after an edit changes the score while paused (currentTime unchanged)", () => {
+    const firstScore = buildScore([
+      event({ id: "1", instrument: "kick", beat: 1, subdivision: 0, time: 0 }),
+      event({ id: "2", instrument: "snare", beat: 3, subdivision: 0, time: 1 }),
+    ]);
+    const secondScore = buildScore([
+      event({ id: "1", instrument: "kick", beat: 1, subdivision: 0, time: 0 }),
+      event({ id: "2", instrument: "hihat_open", beat: 3, subdivision: 0, time: 1 }),
+    ]);
+
+    const { rerender } = render(<DrumScore currentTime={0.5} score={firstScore} />);
+    const container = screen.getByTestId("drum-score");
+    expect(container.querySelector("#drum-score-playhead")).not.toBeNull();
+
+    // Only the score prop changes here - currentTime is held fixed, as it
+    // would be while playback is paused and the user makes a correction.
+    // The layout effect wipes container.innerHTML and rebuilds it, which
+    // previously left the playhead line gone until currentTime next
+    // changed (i.e. until playback resumed).
+    rerender(<DrumScore currentTime={0.5} score={secondScore} />);
+
+    expect(container.querySelector("#drum-score-playhead")).not.toBeNull();
+  });
+
+  it("should keep the timeline sorted by time so a hit that keeps an earlier source time at a later layout position doesn't snap the playhead to the wrong note", () => {
+    // Mirrors what moveHit produces: a hit's source time is immutable, but
+    // its musical/layout position can change independently of it. Here
+    // hit "1" sits early in the measure (beat 1) but carries a LATER
+    // source time than hit "2", which sits later in the measure (beat 4)
+    // but carries an EARLIER source time - layout/array order (beat 1
+    // pushed before beat 4) is therefore the reverse of time order.
+    const invertedScore = buildScore([
+      event({ id: "1", instrument: "kick", beat: 1, subdivision: 0, time: 3 }),
+      event({ id: "2", instrument: "snare", beat: 4, subdivision: 0, time: 0 }),
+    ]);
+    // A control score with the same layout positions, but with time values
+    // that agree with layout order - so its x coordinates are a reliable,
+    // bug-agnostic reference for "beat 1 note's x" / "beat 4 note's x"
+    // (x depends only on layout position, never on hit.time).
+    const controlScore = buildScore([
+      event({ id: "1", instrument: "kick", beat: 1, subdivision: 0, time: 0 }),
+      event({ id: "2", instrument: "snare", beat: 4, subdivision: 0, time: 3 }),
+    ]);
+
+    const control = render(<DrumScore currentTime={-100} score={controlScore} />);
+    const controlContainer = within(control.container).getByTestId("drum-score");
+    const beat1X = Number(controlContainer.querySelector("#drum-score-playhead")!.getAttribute("x1"));
+    control.rerender(<DrumScore currentTime={1000} score={controlScore} />);
+    const beat4X = Number(controlContainer.querySelector("#drum-score-playhead")!.getAttribute("x1"));
+    expect(beat4X).toBeGreaterThan(beat1X);
+
+    const inverted = render(<DrumScore currentTime={-100} score={invertedScore} />);
+    const invertedContainer = within(inverted.container).getByTestId("drum-score");
+    // Before the earliest real anchor's time (hit "2", time 0): the
+    // correct clamp is to the anchor with the smallest source time, i.e.
+    // hit "2" (beat 4's x) - not to whichever point the unsorted layout
+    // array happened to push first (hit "1", beat 1's x).
+    const xBeforeEarliest = Number(invertedContainer.querySelector("#drum-score-playhead")!.getAttribute("x1"));
+    expect(xBeforeEarliest).toBe(beat4X);
+
+    // Past the latest real anchor's time (hit "1", time 3): the correct
+    // clamp is to hit "1" (beat 1's x) - not the last-pushed layout point.
+    inverted.rerender(<DrumScore currentTime={3.5} score={invertedScore} />);
+    const xPastLatest = Number(invertedContainer.querySelector("#drum-score-playhead")!.getAttribute("x1"));
+    expect(xPastLatest).toBe(beat1X);
+    expect(xPastLatest).not.toBe(beat4X);
   });
 
   it("should call onSeek with a note's source time when it is clicked", () => {

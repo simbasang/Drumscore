@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AnalysisEvent, Beat, DrumInstrument } from "@/lib/api/jobs";
 import { type DecodableAudioContext, loadAudioBuffer } from "@/lib/audio/loadAudioBuffer";
@@ -25,6 +25,7 @@ type LoadStatus = "loading" | "ready" | "error";
 
 const INSTRUMENTS = Object.keys(INSTRUMENT_NOTATION) as DrumInstrument[];
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5];
+const MIN_LOOP_LENGTH_SECONDS = 0.05;
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) {
@@ -181,7 +182,20 @@ export default function Player({
   const countInPendingRef = useRef(false);
 
   const editor = useScoreEditor(events);
-  const hits = collectHits(editor.score);
+  // editor.score only changes identity on a real edit, but currentTime (and
+  // therefore this component) re-renders ~60 times/second during playback -
+  // without memoizing, every one of those re-renders would re-walk the
+  // entire score's measures/slots/hits for no reason.
+  const hits = useMemo(() => collectHits(editor.score), [editor.score]);
+
+  // selectedHitId can go stale (point at a hit that no longer exists) after
+  // undo/redo, or after an edit that removes/replaces the selected hit.
+  // Adjusted synchronously during render (React's documented pattern for
+  // deriving state from a change elsewhere, not a useEffect) rather than
+  // after the fact, so a stale id never briefly renders as "selected".
+  if (selectedHitId && !hits.some((hit) => hit.id === selectedHitId)) {
+    setSelectedHitId("");
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -316,6 +330,15 @@ export default function Player({
       return;
     }
     const range = { startTime: Math.min(loopStart, currentTime), endTime: Math.max(loopStart, currentTime) };
+    // A near-zero-length range (e.g. start/end captured at the same
+    // currentTime while paused) makes shouldRestartLoop() true on every
+    // subsequent tick, so the transport seeks back to the same point dozens
+    // of times a second instead of looping a real span. Discard it and let
+    // the user re-capture the end point instead of wedging playback.
+    if (range.endTime - range.startTime < MIN_LOOP_LENGTH_SECONDS) {
+      setLoopStart(null);
+      return;
+    }
     setLoop(range);
     transportRef.current?.setLoop(range);
   }
@@ -382,7 +405,7 @@ export default function Player({
         <button type="button" onClick={handlePlayPause} disabled={isCountingIn}>
           {isPlaying ? "Pause" : "Play"}
         </button>
-        <button type="button" onClick={handleCountInPlay} disabled={isCountingIn}>
+        <button type="button" onClick={handleCountInPlay} disabled={isCountingIn || isPlaying}>
           Count-in
         </button>
         <input
@@ -430,7 +453,14 @@ export default function Player({
           </select>
         </label>
         <label>
-          <input type="checkbox" aria-label="Metronome" checked={metronomeEnabled} onChange={handleMetronomeToggle} />
+          <input
+            type="checkbox"
+            aria-label="Metronome"
+            checked={metronomeEnabled}
+            onChange={handleMetronomeToggle}
+            disabled={beats.length === 0}
+            title={beats.length === 0 ? "Beat data unavailable for this job" : undefined}
+          />
           Metronome
         </label>
       </div>

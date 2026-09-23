@@ -199,9 +199,30 @@ describe("PracticeTransport metronome and count-in", () => {
     expect(context.createOscillator).toHaveBeenCalledTimes(4);
     expect(player.play).not.toHaveBeenCalled();
 
+    // 3 of the 4 clicks (4 clicks x 0.5s period = 2000ms total) have
+    // elapsed here - play must not fire until the count-in fully finishes,
+    // not merely once the last click has started sounding.
     jest.advanceTimersByTime(1500);
+    expect(player.play).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(500);
 
     expect(player.play).toHaveBeenCalledTimes(1);
+    jest.useRealTimers();
+  });
+
+  it("should cancel a pending count-in when pause is called, so play never fires after unmount closes the audio context", () => {
+    jest.useFakeTimers();
+    const transport = new PracticeTransport(player, context, beats);
+    player.getCurrentTime.mockReturnValue(0);
+
+    transport.playWithCountIn();
+    expect(context.createOscillator).toHaveBeenCalledTimes(4);
+
+    transport.pause();
+    jest.advanceTimersByTime(10000);
+
+    expect(player.play).not.toHaveBeenCalled();
     jest.useRealTimers();
   });
 

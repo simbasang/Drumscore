@@ -57,6 +57,7 @@ export class PracticeTransport {
   private readonly beats: Beat[];
   private metronomeEnabled = false;
   private nextMetronomeBeatIndex = -1;
+  private countInTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   constructor(player: PlayerLike, context: MetronomeContextLike, beats: Beat[]) {
     this.player = player;
@@ -69,6 +70,15 @@ export class PracticeTransport {
   }
 
   pause(): void {
+    // Pausing also cancels a pending count-in: if playWithCountIn()'s timer
+    // were left running, it would call play() -> startSources() on an
+    // AudioContext that a component unmount (Player.tsx's cleanup, which
+    // calls pause() then context.close()) may have already closed by the
+    // time the timer fires, throwing an uncaught InvalidStateError.
+    if (this.countInTimeoutId != null) {
+      clearTimeout(this.countInTimeoutId);
+      this.countInTimeoutId = null;
+    }
     this.player.pause();
   }
 
@@ -164,8 +174,15 @@ export class PracticeTransport {
     });
 
     const period = beatPeriodAt(this.beats, startTime) ?? 0;
-    const totalDuration = (clickTimes.length - 1) * period;
-    setTimeout(() => this.play(), totalDuration * 1000);
+    // clickTimes holds click OFFSETS ([0, p, 2p, ...]), so the count-in must
+    // run for clickTimes.length * period seconds to let the final click
+    // finish, not (clickTimes.length - 1) * period - that shorter duration
+    // fires play() exactly when the last click sounds instead of after it.
+    const totalDuration = clickTimes.length * period;
+    this.countInTimeoutId = setTimeout(() => {
+      this.countInTimeoutId = null;
+      this.play();
+    }, totalDuration * 1000);
   }
 
   private scheduleUpcomingClicks(currentSourceTime: number): void {

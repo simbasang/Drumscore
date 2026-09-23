@@ -1,4 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
+import React from "react";
 
 import type { AnalysisEvent } from "@/lib/api/jobs";
 import { useScoreEditor } from "../useScoreEditor";
@@ -123,6 +124,36 @@ describe("useScoreEditor", () => {
     });
 
     expect(result.current.score).toBe(initialScore);
+  });
+
+  it("should move exactly one entry from the undo stack to the redo stack per undo() call under React Strict Mode", () => {
+    // Strict Mode deliberately double-invokes reducers/updater functions in
+    // development to surface impurity. The pre-refactor undo/redo (nested
+    // setState-as-a-side-effect inside a setState updater) pushed the same
+    // score onto the OTHER stack twice per call under that double
+    // invocation - a plain canRedo/canUndo boolean check after a single
+    // undo can't tell "1 entry" from "2 entries" apart (both are truthy),
+    // so this asserts the stack is actually exhausted after exactly one
+    // matching redo() call - the pre-refactor code left a duplicate
+    // entry behind, requiring a second redo click to fully exhaust it.
+    const { result } = renderHook(() => useScoreEditor([]), { wrapper: React.StrictMode });
+
+    act(() => {
+      result.current.addHit({ measure: 1, beat: 1, subdivision: 0 }, "snare");
+    });
+    expect(result.current.canUndo).toBe(true);
+
+    act(() => {
+      result.current.undo();
+    });
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canRedo).toBe(true);
+
+    act(() => {
+      result.current.redo();
+    });
+
+    expect(result.current.canRedo).toBe(false);
   });
 
   it("should reset score and history when given a new events array", () => {

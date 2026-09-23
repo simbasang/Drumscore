@@ -235,6 +235,31 @@ def test_get_analysis_exposes_confidence_and_provenance_fields():
     assert body["events"][0]["provenance"] == "drumscript"
 
 
+def test_get_analysis_exposes_beat_anchors():
+    create_response = client.post("/api/jobs", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+    job_id = create_response.json()["id"]
+
+    response = client.get(f"/api/jobs/{job_id}/analysis")
+
+    body = response.json()
+    assert body["beats"] == [
+        {"source_time": 0.0, "measure": 1, "beat": 1, "is_downbeat": True, "confidence": None},
+        {"source_time": 0.5, "measure": 1, "beat": 2, "is_downbeat": False, "confidence": None},
+        {"source_time": 1.0, "measure": 1, "beat": 3, "is_downbeat": False, "confidence": None},
+        {"source_time": 1.5, "measure": 1, "beat": 4, "is_downbeat": False, "confidence": None},
+    ]
+
+
+def test_get_analysis_returns_empty_beats_when_job_has_none(isolated_dependencies):
+    store = isolated_dependencies
+    job_id = _create_job_through_to_tempo_mapped()
+    store.update(job_id, beats=None)
+
+    response = client.get(f"/api/jobs/{job_id}/analysis")
+
+    assert response.json()["beats"] == []
+
+
 def test_get_analysis_returns_409_when_job_not_yet_tempo_mapped():
     app.dependency_overrides[get_transcriber] = lambda: FailingTranscriber()
 

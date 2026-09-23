@@ -9,7 +9,7 @@ import { PracticeTransport, type MetronomeContextLike } from "@/lib/audio/Practi
 import { SyncedPlayer } from "@/lib/audio/SyncedPlayer";
 import { INSTRUMENT_NOTATION } from "@/lib/notation/instrumentNotation";
 import { useScoreEditor } from "@/lib/score/useScoreEditor";
-import type { Score } from "@/lib/score/types";
+import type { MusicalPosition, Score } from "@/lib/score/types";
 
 const DrumScore = dynamic(() => import("@/components/DrumScore"), { ssr: false });
 
@@ -40,6 +40,99 @@ function defaultCreateAudioContext(): DecodableAudioContext {
   return new AudioContext() as unknown as DecodableAudioContext;
 }
 
+// Clamps a typed <input type="number"> value into [min, max]. The HTML
+// min/max attributes only affect the spinner buttons and :invalid styling -
+// they never stop a typed value (or Number(...) of an empty/non-numeric
+// string, which yields NaN) from reaching state, so every position field's
+// onChange must run its raw value through this before storing it.
+function clampNumber(value: number, min: number, max: number, fallback: number): number {
+  return Number.isFinite(value) ? Math.min(Math.max(value, min), max) : fallback;
+}
+
+// Builds the three clamped onChange handlers (measure/beat/subdivision)
+// shared by the Move-hit and Add-hit position panels, so the clamping rules
+// (and their bounds) live in exactly one place instead of being duplicated
+// per panel.
+function createPositionChangeHandlers(
+  setPosition: React.Dispatch<React.SetStateAction<MusicalPosition>>,
+  measureCount: number,
+) {
+  return {
+    onMeasureChange: (event: React.ChangeEvent<HTMLInputElement>) =>
+      setPosition((p) => ({
+        ...p,
+        measure: clampNumber(Number(event.target.value), 1, measureCount, p.measure),
+      })),
+    onBeatChange: (event: React.ChangeEvent<HTMLInputElement>) =>
+      setPosition((p) => ({ ...p, beat: clampNumber(Number(event.target.value), 1, 4, p.beat) })),
+    onSubdivisionChange: (event: React.ChangeEvent<HTMLInputElement>) =>
+      setPosition((p) => ({
+        ...p,
+        subdivision: clampNumber(Number(event.target.value), 0, 3, p.subdivision),
+      })),
+  };
+}
+
+interface PositionInputsProps {
+  labelPrefix: string;
+  position: MusicalPosition;
+  measureCount: number;
+  onMeasureChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onBeatChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onSubdivisionChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+}
+
+// Shared measure/beat/subdivision number-input trio for the Move-hit and
+// Add-hit panels - identical structure, only the label wording and target
+// state differ, so this is the one place their markup (and therefore their
+// aria-labels) is defined.
+function PositionInputs({
+  labelPrefix,
+  position,
+  measureCount,
+  onMeasureChange,
+  onBeatChange,
+  onSubdivisionChange,
+}: PositionInputsProps) {
+  return (
+    <>
+      <label>
+        {labelPrefix} measure
+        <input
+          type="number"
+          aria-label={`${labelPrefix} measure`}
+          min={1}
+          max={measureCount}
+          value={position.measure}
+          onChange={onMeasureChange}
+        />
+      </label>
+      <label>
+        {labelPrefix} beat
+        <input
+          type="number"
+          aria-label={`${labelPrefix} beat`}
+          min={1}
+          max={4}
+          value={position.beat}
+          onChange={onBeatChange}
+        />
+      </label>
+      <label>
+        {labelPrefix} subdivision
+        <input
+          type="number"
+          aria-label={`${labelPrefix} subdivision`}
+          min={0}
+          max={3}
+          value={position.subdivision}
+          onChange={onSubdivisionChange}
+        />
+      </label>
+    </>
+  );
+}
+
 function collectHits(score: Score): { id: string; label: string }[] {
   const result: { id: string; label: string }[] = [];
   score.measures.forEach((measure, measureIndex) => {
@@ -67,6 +160,7 @@ export default function Player({
 }: PlayerProps) {
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isCountingIn, setIsCountingIn] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [masterVolume, setMasterVolume] = useState(1);
@@ -137,7 +231,10 @@ export default function Player({
     }
     setCurrentTime(transport.tick());
     if (transport.isPlaying) {
-      countInPendingRef.current = false;
+      if (countInPendingRef.current) {
+        countInPendingRef.current = false;
+        setIsCountingIn(false);
+      }
       rafRef.current = requestAnimationFrame(tick);
     } else if (countInPendingRef.current) {
       rafRef.current = requestAnimationFrame(tick);
@@ -173,6 +270,7 @@ export default function Player({
     countInPendingRef.current = true;
     transport.playWithCountIn();
     setIsPlaying(true);
+    setIsCountingIn(true);
     rafRef.current = requestAnimationFrame(tick);
   }
 
@@ -275,14 +373,16 @@ export default function Player({
   }
 
   const measureCount = Math.max(editor.score.measures.length, 1);
+  const moveHandlers = createPositionChangeHandlers(setMovePosition, measureCount);
+  const addHandlers = createPositionChangeHandlers(setAddPosition, measureCount);
 
   return (
     <div>
       <div>
-        <button type="button" onClick={handlePlayPause}>
+        <button type="button" onClick={handlePlayPause} disabled={isCountingIn}>
           {isPlaying ? "Pause" : "Play"}
         </button>
-        <button type="button" onClick={handleCountInPlay}>
+        <button type="button" onClick={handleCountInPlay} disabled={isCountingIn}>
           Count-in
         </button>
         <input
@@ -383,39 +483,14 @@ export default function Player({
         <button type="button" onClick={handleChangeInstrument} disabled={!selectedHitId}>
           Change instrument
         </button>
-        <label>
-          Move to measure
-          <input
-            type="number"
-            aria-label="Move to measure"
-            min={1}
-            max={measureCount}
-            value={movePosition.measure}
-            onChange={(event) => setMovePosition((p) => ({ ...p, measure: Number(event.target.value) }))}
-          />
-        </label>
-        <label>
-          Move to beat
-          <input
-            type="number"
-            aria-label="Move to beat"
-            min={1}
-            max={4}
-            value={movePosition.beat}
-            onChange={(event) => setMovePosition((p) => ({ ...p, beat: Number(event.target.value) }))}
-          />
-        </label>
-        <label>
-          Move to subdivision
-          <input
-            type="number"
-            aria-label="Move to subdivision"
-            min={0}
-            max={3}
-            value={movePosition.subdivision}
-            onChange={(event) => setMovePosition((p) => ({ ...p, subdivision: Number(event.target.value) }))}
-          />
-        </label>
+        <PositionInputs
+          labelPrefix="Move to"
+          position={movePosition}
+          measureCount={measureCount}
+          onMeasureChange={moveHandlers.onMeasureChange}
+          onBeatChange={moveHandlers.onBeatChange}
+          onSubdivisionChange={moveHandlers.onSubdivisionChange}
+        />
         <button type="button" onClick={handleMoveHit} disabled={!selectedHitId}>
           Move hit
         </button>
@@ -435,39 +510,14 @@ export default function Player({
             ))}
           </select>
         </label>
-        <label>
-          Add at measure
-          <input
-            type="number"
-            aria-label="Add at measure"
-            min={1}
-            max={measureCount}
-            value={addPosition.measure}
-            onChange={(event) => setAddPosition((p) => ({ ...p, measure: Number(event.target.value) }))}
-          />
-        </label>
-        <label>
-          Add at beat
-          <input
-            type="number"
-            aria-label="Add at beat"
-            min={1}
-            max={4}
-            value={addPosition.beat}
-            onChange={(event) => setAddPosition((p) => ({ ...p, beat: Number(event.target.value) }))}
-          />
-        </label>
-        <label>
-          Add at subdivision
-          <input
-            type="number"
-            aria-label="Add at subdivision"
-            min={0}
-            max={3}
-            value={addPosition.subdivision}
-            onChange={(event) => setAddPosition((p) => ({ ...p, subdivision: Number(event.target.value) }))}
-          />
-        </label>
+        <PositionInputs
+          labelPrefix="Add at"
+          position={addPosition}
+          measureCount={measureCount}
+          onMeasureChange={addHandlers.onMeasureChange}
+          onBeatChange={addHandlers.onBeatChange}
+          onSubdivisionChange={addHandlers.onSubdivisionChange}
+        />
         <button type="button" onClick={handleAddHit}>
           Add hit
         </button>

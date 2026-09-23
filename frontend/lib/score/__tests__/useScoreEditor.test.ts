@@ -25,6 +25,14 @@ describe("useScoreEditor", () => {
     expect(noteSlot).toBeDefined();
   });
 
+  it("should seed a from-scratch score with a single consolidated whole-rest measure, not 16 separate sixteenth rests", () => {
+    const { result } = renderHook(() => useScoreEditor([]));
+
+    expect(result.current.score.measures).toHaveLength(1);
+    expect(result.current.score.measures[0]).toHaveLength(1);
+    expect(result.current.score.measures[0][0]).toMatchObject({ type: "rest", duration: "1" });
+  });
+
   it("should apply addHit and reflect the new hit in the score", () => {
     const { result } = renderHook(() => useScoreEditor([]));
 

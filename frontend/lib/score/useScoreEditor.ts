@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import type { AnalysisEvent, DrumInstrument } from "@/lib/api/jobs";
 import { fromAnalysisEvents } from "./buildScore";
-import { BEATS_PER_MEASURE, SLOT_DURATION, SUBDIVISIONS_PER_BEAT, toPosition } from "./grid";
+import { BEATS_PER_MEASURE, consolidateRests, SLOT_DURATION, SUBDIVISIONS_PER_BEAT, toPosition } from "./grid";
 import { generateId } from "./id";
 import { addHit, changeInstrument, deleteHit, moveHit } from "./transformations";
 import type { Measure, MusicalPosition, Score } from "./types";
@@ -16,14 +16,21 @@ import type { Measure, MusicalPosition, Score } from "./types";
 // (nothing transcribed yet, or every event filtered out). Seeding one empty
 // (all-rest) measure gives the editor a first measure to place manual hits
 // into, using the same building blocks buildScore.ts itself builds
-// measures from - transformations.ts/buildScore.ts are untouched.
+// measures from - transformations.ts/buildScore.ts are untouched. Run
+// through consolidateRests (the same call every other all-rest measure in
+// this codebase goes through - buildScore.ts's consolidateDurations, and
+// transformations.ts's post-edit consolidateDurations calls) so this seeded
+// measure renders as one whole rest instead of 16 separate sixteenth rests,
+// per CLAUDE.md's "musical note/rest durations instead of every hit as a
+// sixteenth" mandate.
 function emptyMeasure(measureNumber: number): Measure {
-  return Array.from({ length: BEATS_PER_MEASURE * SUBDIVISIONS_PER_BEAT }, (_, sixteenthIndex) => ({
-    type: "rest",
+  const sixteenthRests = Array.from({ length: BEATS_PER_MEASURE * SUBDIVISIONS_PER_BEAT }, (_, sixteenthIndex) => ({
+    type: "rest" as const,
     id: generateId("rest"),
     duration: SLOT_DURATION,
     position: toPosition(measureNumber, sixteenthIndex),
   }));
+  return consolidateRests(sixteenthRests);
 }
 
 function buildInitialScore(events: AnalysisEvent[]): Score {

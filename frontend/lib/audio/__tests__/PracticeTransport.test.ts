@@ -5,6 +5,7 @@ import {
   type MetronomeContextLike,
   type PlayerLike,
 } from "../PracticeTransport";
+import type { Beat } from "@/lib/api/jobs";
 
 class FakePlayer implements PlayerLike {
   isPlaying = false;
@@ -33,6 +34,10 @@ function fakeContext(): MetronomeContextLike {
       stop: jest.fn(),
     })),
   };
+}
+
+function beat(source_time: number, measure: number, beatNumber: number, isDownbeat: boolean): Beat {
+  return { source_time, measure, beat: beatNumber, is_downbeat: isDownbeat, confidence: null };
 }
 
 describe("shouldRestartLoop", () => {
@@ -123,5 +128,86 @@ describe("PracticeTransport", () => {
 
     expect(player.setPlaybackRate).toHaveBeenCalledWith(1.5);
     expect(transport.getPlaybackRate()).toBe(1.5);
+  });
+});
+
+describe("PracticeTransport metronome and count-in", () => {
+  let player: FakePlayer;
+  let context: ReturnType<typeof fakeContext>;
+  const beats: Beat[] = [beat(0, 1, 1, true), beat(0.5, 1, 2, false), beat(1.0, 1, 3, false), beat(1.5, 1, 4, false)];
+
+  beforeEach(() => {
+    player = new FakePlayer();
+    context = fakeContext();
+  });
+
+  it("should not schedule any clicks when the metronome is disabled", () => {
+    const transport = new PracticeTransport(player, context, beats);
+    player.isPlaying = true;
+    player.getCurrentTime.mockReturnValue(0);
+
+    transport.tick();
+
+    expect(context.createOscillator).not.toHaveBeenCalled();
+  });
+
+  it("should schedule a click for a beat that falls within the lookahead window once the metronome is enabled", () => {
+    const transport = new PracticeTransport(player, context, beats);
+    player.isPlaying = true;
+    player.getCurrentTime.mockReturnValue(0);
+    transport.setMetronomeEnabled(true);
+
+    transport.tick();
+
+    expect(context.createOscillator).toHaveBeenCalledTimes(1);
+  });
+
+  it("should not schedule the same beat's click twice across repeated ticks", () => {
+    const transport = new PracticeTransport(player, context, beats);
+    player.isPlaying = true;
+    player.getCurrentTime.mockReturnValue(0);
+    transport.setMetronomeEnabled(true);
+
+    transport.tick();
+    transport.tick();
+
+    expect(context.createOscillator).toHaveBeenCalledTimes(1);
+  });
+
+  it("should not schedule clicks while the transport is not playing", () => {
+    const transport = new PracticeTransport(player, context, beats);
+    player.isPlaying = false;
+    player.getCurrentTime.mockReturnValue(0);
+    transport.setMetronomeEnabled(true);
+
+    transport.tick();
+
+    expect(context.createOscillator).not.toHaveBeenCalled();
+  });
+
+  it("should schedule count-in clicks and delay play until they finish", () => {
+    jest.useFakeTimers();
+    const transport = new PracticeTransport(player, context, beats);
+    player.getCurrentTime.mockReturnValue(0);
+
+    transport.playWithCountIn();
+
+    expect(context.createOscillator).toHaveBeenCalledTimes(4);
+    expect(player.play).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1500);
+
+    expect(player.play).toHaveBeenCalledTimes(1);
+    jest.useRealTimers();
+  });
+
+  it("should play immediately with no count-in when fewer than two beats are available", () => {
+    const transport = new PracticeTransport(player, context, [beat(0, 1, 1, true)]);
+    player.getCurrentTime.mockReturnValue(0);
+
+    transport.playWithCountIn();
+
+    expect(context.createOscillator).not.toHaveBeenCalled();
+    expect(player.play).toHaveBeenCalledTimes(1);
   });
 });

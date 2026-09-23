@@ -9,6 +9,7 @@ export interface GainNodeLike {
 
 export interface BufferSourceNodeLike {
   buffer: unknown;
+  playbackRate: { value: number };
   connect(destination: unknown): void;
   start(when?: number, offset?: number): void;
   stop(): void;
@@ -33,6 +34,7 @@ export class SyncedPlayer {
   private startContextTime = 0;
   private offset = 0;
   private playing = false;
+  private rate = 1;
 
   constructor(
     context: AudioContextLike,
@@ -95,7 +97,7 @@ export class SyncedPlayer {
     if (!this.playing) {
       return this.offset;
     }
-    const elapsed = this.offset + (this.context.currentTime - this.startContextTime);
+    const elapsed = this.offset + (this.context.currentTime - this.startContextTime) * this.rate;
     if (elapsed >= this.duration) {
       this.stopSources();
       this.playing = false;
@@ -103,6 +105,23 @@ export class SyncedPlayer {
       return this.offset;
     }
     return elapsed;
+  }
+
+  setPlaybackRate(rate: number): void {
+    if (this.playing) {
+      const currentOffset = this.getCurrentTime();
+      this.stopSources();
+      this.rate = rate;
+      this.offset = currentOffset;
+      this.startSources(this.offset);
+      this.startContextTime = this.context.currentTime;
+    } else {
+      this.rate = rate;
+    }
+  }
+
+  getPlaybackRate(): number {
+    return this.rate;
   }
 
   setMasterVolume(value: number): void {
@@ -124,11 +143,13 @@ export class SyncedPlayer {
   private startSources(offset: number): void {
     this.drumsSource = this.context.createBufferSource();
     this.drumsSource.buffer = this.drumsBuffer;
+    this.drumsSource.playbackRate.value = this.rate;
     this.drumsSource.connect(this.drumsGain);
     this.drumsSource.start(0, offset);
 
     this.accompanimentSource = this.context.createBufferSource();
     this.accompanimentSource.buffer = this.accompanimentBuffer;
+    this.accompanimentSource.playbackRate.value = this.rate;
     this.accompanimentSource.connect(this.accompanimentGain);
     this.accompanimentSource.start(0, offset);
   }

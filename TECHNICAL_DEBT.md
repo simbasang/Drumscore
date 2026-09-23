@@ -496,3 +496,22 @@ conventional beaming of note runs, not rest-spanning beams); revisit if
 real-groove testing shows the current unbeamed-around-rests rendering reads
 poorly for common drum patterns (e.g. eighth-note-rest-eighth-note
 snare/hi-hat figures).
+
+---
+
+## `insertHit`'s out-of-range-measure gap remains unreachable after Epic 5
+
+**Found in:** V1-027/#78 (Epic 5 correction editor) design
+
+The "`insertHit` cannot create a new measure" entry above was left deferred
+during V1-018/#51 because it wasn't reachable from any UI. Epic 5 adds the
+first real UI that calls `addHit`/`moveHit` (the manual correction editor),
+so this needed re-checking: the editor's position inputs (`Player.tsx`,
+V1-027/#78) are deliberately bounded to `1..score.measures.length` rather
+than free-form, so a user still cannot construct an out-of-range
+`position.measure`. The gap stays unreachable and therefore stays
+deferred - recorded here as a deliberate re-confirmation, not a new
+finding, so a future reader doesn't have to re-derive it when the next
+UI touches `addHit`/`moveHit`.
+
+**Deferred:** still not reachable from any UI as of Epic 5.

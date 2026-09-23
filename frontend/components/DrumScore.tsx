@@ -3,17 +3,17 @@
 import { useEffect, useRef, useState } from "react";
 import { Formatter, Renderer, Stave, Voice } from "vexflow";
 
-import type { AnalysisEvent } from "@/lib/api/jobs";
-import { fromAnalysisEvents } from "@/lib/score/buildScore";
 import { buildStaveNote } from "@/lib/notation/buildStaveNote";
 import { buildBeams } from "@/lib/notation/beaming";
 import { computeRowLayout } from "@/lib/notation/layout";
 import { computeNoteJustifyWidth } from "@/lib/notation/staveFormatting";
 import { computeAutoScrollLeft, interpolatePlayheadX, type TimelinePoint } from "@/lib/notation/timeline";
+import type { Score } from "@/lib/score/types";
 
 interface DrumScoreProps {
-  events: AnalysisEvent[];
+  score: Score;
   currentTime?: number;
+  onSeek?: (time: number) => void;
 }
 
 const ROW_HEIGHT = 120;
@@ -32,14 +32,14 @@ function averageSourceTime(sourceTimes: number[]): number {
   return sourceTimes.reduce((sum, time) => sum + time, 0) / sourceTimes.length;
 }
 
-export default function DrumScore({ events, currentTime }: DrumScoreProps) {
+export default function DrumScore({ score, currentTime, onSeek }: DrumScoreProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<TimelinePoint[]>([]);
   const [containerWidth, setContainerWidth] = useState(0);
 
   // Tracks the container's real width so layout can adapt to the viewport.
-  // Deliberately its own effect, independent of the currentTime/playhead
-  // effect below, so a resize can never be triggered by playback ticking and
+  // Deliberately its own effect, independent of the score/playhead effect
+  // below, so a resize can never be triggered by playback ticking and
   // playback ticking can never trigger a relayout.
   useEffect(() => {
     const container = containerRef.current;
@@ -60,9 +60,6 @@ export default function DrumScore({ events, currentTime }: DrumScoreProps) {
   }, []);
 
   useEffect(() => {
-    // containerRef is attached to the div this component always renders,
-    // so React guarantees it's set before this effect runs; this guard only
-    // satisfies the nullable ref type.
     const container = containerRef.current;
     if (!container) {
       return;
@@ -71,23 +68,18 @@ export default function DrumScore({ events, currentTime }: DrumScoreProps) {
     container.innerHTML = "";
     timelineRef.current = [];
 
-    const { measures } = fromAnalysisEvents(events);
+    const { measures } = score;
     if (measures.length === 0) {
       return;
     }
 
     const built = measures.map((measure) => {
       const notes = measure.map(buildStaveNote);
-      // beams must be constructed before Formatter/voice.draw() - VexFlow's
-      // Beam constructor calls note.setBeam(this) internally, and StaveNote
-      // consults that beam reference (via shouldDrawFlag()) while formatting
-      // and drawing to suppress its own flag glyph and un-extended stem.
-      // Building beams after draw() left every beamed note flagged with a
-      // double stem underneath the beam. See TECHNICAL_DEBT.md / #52 review.
+      // beams must be constructed before Formatter/voice.draw() - see
+      // TECHNICAL_DEBT.md / #52 review.
       const beams = buildBeams(measure, notes);
       const voice = new Voice({ numBeats: 4, beatValue: 4 }).setStrict(false);
       voice.addTickables(notes);
-      // Note: joinVoices has to be called before preCalculateMinTotalWidth.
       const minWidth = new Formatter().joinVoices([voice]).preCalculateMinTotalWidth([voice]);
       return { measure, notes, beams, voice, minWidth: minWidth + MEASURE_INNER_PADDING };
     });
@@ -130,8 +122,7 @@ export default function DrumScore({ events, currentTime }: DrumScoreProps) {
         // Only note slots are anchored to a real source timestamp - rest
         // slots have no underlying event, so the playhead interpolates
         // smoothly across them between the nearest real anchors instead of
-        // reconstructing a time from a BPM/grid assumption (see
-        // interpolatePlayheadX in lib/notation/timeline.ts).
+        // reconstructing a time from a BPM/grid assumption.
         if (slot.type !== "note") {
           return;
         }
@@ -139,14 +130,19 @@ export default function DrumScore({ events, currentTime }: DrumScoreProps) {
         if (times.length === 0) {
           return;
         }
-        timelineRef.current.push({
-          time: averageSourceTime(times),
-          x: note.getAbsoluteX(),
-          row,
-        });
+        const time = averageSourceTime(times);
+        timelineRef.current.push({ time, x: note.getAbsoluteX(), row });
+
+        if (onSeek) {
+          const svgElement = note.getSVGElement();
+          if (svgElement) {
+            svgElement.style.cursor = "pointer";
+            svgElement.addEventListener("click", () => onSeek(time));
+          }
+        }
       });
     });
-  }, [events, containerWidth]);
+  }, [score, containerWidth, onSeek]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -159,10 +155,6 @@ export default function DrumScore({ events, currentTime }: DrumScoreProps) {
       return;
     }
 
-    // point is only null when no note slots exist anywhere in the score (an
-    // all-rest measure contributes zero timeline points, since only note
-    // slots get pushed) - the svg guard above already returns in that case.
-    // Kept as a defensive type narrowing.
     const point = interpolatePlayheadX(timelineRef.current, currentTime);
     if (!point) {
       return;

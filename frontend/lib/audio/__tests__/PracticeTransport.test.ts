@@ -210,4 +210,56 @@ describe("PracticeTransport metronome and count-in", () => {
     expect(context.createOscillator).not.toHaveBeenCalled();
     expect(player.play).toHaveBeenCalledTimes(1);
   });
+
+  it("should reseed the metronome cursor to the loop start when a loop restart occurs while the metronome is enabled", () => {
+    const transport = new PracticeTransport(player, context, beats);
+    player.isPlaying = true;
+    player.getCurrentTime.mockReturnValue(0);
+    transport.setMetronomeEnabled(true);
+
+    transport.tick();
+    expect(context.createOscillator).toHaveBeenCalledTimes(1);
+
+    transport.setLoop({ startTime: 1.0, endTime: 1.5 });
+    player.getCurrentTime.mockReturnValue(1.5);
+
+    transport.tick();
+
+    expect(player.seek).toHaveBeenCalledWith(1.0);
+    expect(context.createOscillator).toHaveBeenCalledTimes(2);
+  });
+
+  it("should reseed the metronome cursor when seeking forward while the metronome is enabled, without bursting the skipped beat", () => {
+    const transport = new PracticeTransport(player, context, beats);
+    player.isPlaying = true;
+    player.getCurrentTime.mockReturnValue(0);
+    transport.setMetronomeEnabled(true);
+
+    transport.tick();
+    expect(context.createOscillator).toHaveBeenCalledTimes(1);
+
+    transport.seek(1.0);
+    player.getCurrentTime.mockReturnValue(1.0);
+
+    transport.tick();
+
+    expect(context.createOscillator).toHaveBeenCalledTimes(2);
+  });
+
+  it("should reseed the metronome cursor when seeking backward while the metronome is enabled, so clicks resume instead of staying silent", () => {
+    const transport = new PracticeTransport(player, context, beats);
+    player.isPlaying = true;
+    player.getCurrentTime.mockReturnValue(2.0);
+    transport.setMetronomeEnabled(true);
+
+    transport.tick();
+    expect(context.createOscillator).not.toHaveBeenCalled();
+
+    transport.seek(0);
+    player.getCurrentTime.mockReturnValue(0);
+
+    transport.tick();
+
+    expect(context.createOscillator).toHaveBeenCalledTimes(1);
+  });
 });

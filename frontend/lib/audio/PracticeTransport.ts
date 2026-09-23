@@ -70,6 +70,9 @@ export class PracticeTransport {
 
   seek(time: number): void {
     this.player.seek(time);
+    if (this.metronomeEnabled) {
+      this.nextMetronomeBeatIndex = this.beats.findIndex((beat) => beat.source_time >= time);
+    }
   }
 
   getCurrentTime(): number {

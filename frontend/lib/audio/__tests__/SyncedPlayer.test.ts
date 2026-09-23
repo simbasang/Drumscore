@@ -246,4 +246,19 @@ describe("SyncedPlayer", () => {
     expect(player.getPlaybackRate()).toBe(0.5);
     expect(context.createBufferSource).not.toHaveBeenCalled();
   });
+
+  it("should not restart sources when playback already ended before a rate change", () => {
+    const player = new SyncedPlayer(context, makeBuffer(10), makeBuffer(10));
+    context.currentTime = 0;
+    player.play();
+    context.currentTime = 15;
+    player.getCurrentTime();
+    context.createBufferSource.mockClear();
+
+    player.setPlaybackRate(2);
+
+    expect(context.createBufferSource).not.toHaveBeenCalled();
+    expect(player.isPlaying).toBe(false);
+    expect(player.getCurrentTime()).toBe(10);
+  });
 });

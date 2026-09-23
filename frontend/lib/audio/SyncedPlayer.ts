@@ -108,8 +108,8 @@ export class SyncedPlayer {
   }
 
   setPlaybackRate(rate: number): void {
+    const currentOffset = this.getCurrentTime();
     if (this.playing) {
-      const currentOffset = this.getCurrentTime();
       this.stopSources();
       this.rate = rate;
       this.offset = currentOffset;

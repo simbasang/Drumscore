@@ -477,8 +477,10 @@ def test_concurrent_claims_hand_a_job_to_exactly_one_worker(postgres_store):
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join()
+        thread.join(timeout=30)
 
+    assert not any(thread.is_alive() for thread in threads)
+    assert len(results) == 8
     assert len([r for r in results if r is not None]) == 1
 
 

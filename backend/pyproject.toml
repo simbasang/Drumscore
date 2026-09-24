@@ -12,8 +12,11 @@ dependencies = [
     "psycopg[binary]>=3.3.6",
     "pydantic-settings>=2.15.0",
     "sqlalchemy>=2.0.54",
+    "torch>=2.14.0",
+    "torchaudio>=2.11.0",
     "uvicorn[standard]>=0.53.0",
     "yt-dlp>=2026.8.19",
+    "yt-dlp-ejs>=0.8.0",
 ]
 
 [dependency-groups]
@@ -30,3 +33,15 @@ pythonpath = ["."]
 markers = [
     "integration: needs Docker (Postgres via testcontainers)",
 ]
+
+# Linux (the production containers) installs CPU-only torch: PyPI's Linux
+# torch wheels pull several GB of CUDA libraries the deployment doesn't use.
+# Other platforms keep resolving torch from PyPI.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchaudio = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]

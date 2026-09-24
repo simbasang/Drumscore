@@ -1,4 +1,4 @@
-import type { AnalysisEvent, DrumInstrument } from "@/lib/api/jobs";
+import type { AnalysisEvent, DrumInstrument } from "@/lib/api/types";
 
 export interface GrooveFixture {
   name: string;

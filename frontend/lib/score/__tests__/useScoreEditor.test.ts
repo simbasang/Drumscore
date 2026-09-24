@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import React from "react";
 
-import type { AnalysisEvent } from "@/lib/api/jobs";
+import type { AnalysisEvent } from "@/lib/api/types";
 import { useScoreEditor } from "../useScoreEditor";
 
 function event(overrides: Partial<AnalysisEvent>): AnalysisEvent {

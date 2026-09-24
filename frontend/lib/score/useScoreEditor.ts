@@ -1,6 +1,6 @@
 import { useReducer } from "react";
 
-import type { AnalysisEvent, DrumInstrument } from "@/lib/api/jobs";
+import type { AnalysisEvent, DrumInstrument } from "@/lib/api/types";
 import { fromAnalysisEvents } from "./buildScore";
 import { BEATS_PER_MEASURE, consolidateRests, SLOT_DURATION, SUBDIVISIONS_PER_BEAT, toPosition } from "./grid";
 import { generateId } from "./id";

@@ -1,4 +1,4 @@
-import type { AnalysisEvent } from "@/lib/api/jobs";
+import type { AnalysisEvent } from "@/lib/api/types";
 import { fromAnalysisEvents } from "../buildScore";
 import type { Measure } from "../types";
 

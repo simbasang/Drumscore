@@ -1,4 +1,4 @@
-import type { AnalysisEvent } from "@/lib/api/jobs";
+import type { AnalysisEvent } from "@/lib/api/types";
 
 // Synthetic fixture: real production jobs never populate confidence (see
 // TECHNICAL_DEBT.md / Epic 3 - DrumScriptTranscriber never fabricates a

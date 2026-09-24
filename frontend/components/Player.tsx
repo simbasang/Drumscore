@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { AnalysisEvent, Beat, DrumInstrument } from "@/lib/api/jobs";
+import type { AnalysisEvent, Beat, DrumInstrument } from "@/lib/api/types";
 import { type DecodableAudioContext, loadAudioBuffer } from "@/lib/audio/loadAudioBuffer";
 import { PracticeTransport, type MetronomeContextLike } from "@/lib/audio/PracticeTransport";
 import { SyncedPlayer } from "@/lib/audio/SyncedPlayer";

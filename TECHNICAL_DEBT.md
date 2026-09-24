@@ -834,3 +834,31 @@ same key and the committed row always points at the committing owner's file.
 abandons at its next checkpoint, both owners run the same deterministic
 engines on the same input, and a lease is only lost after a stall longer than
 `LEASE_SECONDS`.
+
+---
+
+## Engine subprocess output is decoded with the Windows code page
+
+**Found in:** Epic 6 Slice A manual restart-survival check (pre-existing since MVP-004)
+
+`DemucsStemSeparator.separate` (`backend/app/demucs_stem_separator.py`) and
+the DrumScript runner call (`backend/app/drumscript_transcriber.py`) run
+`subprocess.run(..., capture_output=True, text=True)` without an `encoding`,
+so on Windows the child's output is decoded with the locale code page
+(cp1252). Demucs's progress output contains bytes cp1252 cannot decode
+(e.g. `0x8d`), so `subprocess`'s reader thread dies with a
+`UnicodeDecodeError` traceback in the worker log on every separation. When
+the stage succeeds this is only noise, but the failed stream's captured
+value comes back as `None`: if Demucs exits non-zero, `result.stderr.strip()`
+raises `AttributeError`, the real Demucs error text is lost, and the job is
+classified as an unexpected (transient) error instead of a permanent
+`StemSeparationError`.
+
+**Fix would involve:** passing `encoding="utf-8", errors="replace"` to both
+engine `subprocess.run` calls (or sharing it via `detached_process_kwargs` in
+`backend/app/engine_process.py`), plus a test that feeds non-UTF-8/non-cp1252
+bytes through a fake engine's stderr and asserts the failure message
+survives.
+
+**Deferred:** successful runs are unaffected; only the diagnostics of a
+failing Demucs/DrumScript run are lost.

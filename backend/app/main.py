@@ -1,4 +1,3 @@
-import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -6,13 +5,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.projects import router as projects_router
 from app.config import get_settings
+from app.observability.logging import configure_logging
 from app.persistence.migrations import upgrade_to_head
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    force=True,
-)
+_settings = get_settings()
+configure_logging(_settings.log_level, _settings.log_format)
 
 
 @asynccontextmanager

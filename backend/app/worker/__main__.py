@@ -4,17 +4,18 @@ This module is OS-process and signal glue around build_worker and
 Worker.run_forever (both unit-tested). It is exercised by running the
 worker, not by pytest, hence the no-cover pragmas."""
 
-import logging
 import multiprocessing
 import signal
 
 from app.config import get_settings
+from app.observability.logging import configure_logging
 from app.worker.factory import build_worker
 
 
 def run_worker_process() -> None:  # pragma: no cover - process entrypoint
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    worker = build_worker(get_settings())
+    settings = get_settings()
+    configure_logging(settings.log_level, settings.log_format)
+    worker = build_worker(settings)
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: worker.stop())
     worker.run_forever()

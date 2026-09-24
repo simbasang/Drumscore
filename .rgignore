@@ -1,0 +1,4 @@
+# Keep old plans and SDD ledgers out of Grep/Glob results (token cost).
+# Read the current plan/ledger by exact path instead.
+docs/superpowers/plans/
+.superpowers/

@@ -126,7 +126,9 @@ def _run_stages(job: Job, project: Project, ctx: JobContext) -> None:
     artifacts = _live_artifacts(job, ctx)
 
     if not {ArtifactKind.DRUMS_STEM, ArtifactKind.ACCOMPANIMENT_STEM} <= artifacts.keys():
-        if ArtifactKind.SOURCE_AUDIO not in artifacts:
+        # Cached stems make the source audio unnecessary (the pruner removes
+        # it once a job completes), so only extract when separation will run.
+        if ArtifactKind.SOURCE_AUDIO not in artifacts and _usable_cache_entry(Stage.SEPARATE, project, ctx) is None:
             artifacts |= _obtain(
                 Stage.EXTRACT, job, project, ctx, JobStatus.DOWNLOADING, JobStatus.DOWNLOADED,
                 lambda staging: _extract(project, ctx, staging),
@@ -157,18 +159,26 @@ def _obtain(
     done: JobStatus,
     produce: Callable[[Path], StageOutputs],
 ) -> dict[ArtifactKind, Artifact]:
-    cached = ctx.store.get_cache_entry(project.source_key, stage, PIPELINE_VERSION)
-    if cached is not None and all(ctx.storage.exists(a.storage_key) for a in cached.artifacts):
+    cached = _usable_cache_entry(stage, project, ctx)
+    if cached is not None:
         logger.info("Job %s reusing cached %s output", job.id, stage.value)
         created = ctx.store.commit_stage(job.id, ctx.owner, done, cached.artifacts, None, ctx.clock())
         return {artifact.kind: artifact for artifact in created}
 
     ctx.store.set_job_status(job.id, ctx.owner, running, ctx.clock())
+    logger.info("Job %s running stage %s", job.id, stage.value)
     with ctx.storage.staging_dir() as staging:
         descriptors = tuple(_store_output(job, kind, path, ctx) for kind, path in produce(staging))
     entry = CacheEntry(source_key=project.source_key, stage=stage, pipeline_version=PIPELINE_VERSION, artifacts=descriptors)
     created = ctx.store.commit_stage(job.id, ctx.owner, done, descriptors, entry, ctx.clock())
     return {artifact.kind: artifact for artifact in created}
+
+
+def _usable_cache_entry(stage: Stage, project: Project, ctx: JobContext) -> CacheEntry | None:
+    cached = ctx.store.get_cache_entry(project.source_key, stage, PIPELINE_VERSION)
+    if cached is not None and all(ctx.storage.exists(a.storage_key) for a in cached.artifacts):
+        return cached
+    return None
 
 
 def _store_output(job: Job, kind: ArtifactKind, path: Path, ctx: JobContext) -> NewArtifact:

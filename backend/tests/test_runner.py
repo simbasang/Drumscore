@@ -1,13 +1,16 @@
+import logging
 from datetime import timedelta
 
 import pytest
 
 from app.audio_extraction import AudioExtractionError
+from app.config import Settings
 from app.stem_separation import StemSeparationError
 from app.persistence.memory import InMemoryStore
 from app.persistence.models import ArtifactKind, JobStatus, LeaseLostError
 from app.pipeline.runner import JobAbandoned, JobContext, process_job
 from app.storage import LocalArtifactStorage
+from app.worker.pruner import prune
 from tests.fakes import (
     FOUR_BEATS,
     SAMPLE_RAW_EVENTS,
@@ -114,8 +117,61 @@ def test_forced_duplicate_reuses_cached_stage_outputs(store, storage, clock):
     assert (extractor.calls, separator.calls, transcriber.calls) == (1, 1, 1)
     original_keys = {k: a.storage_key for k, a in store.artifacts_for_job(first.id).items()}
     duplicate_keys = {k: a.storage_key for k, a in store.artifacts_for_job(second.id).items()}
-    assert duplicate_keys == original_keys
+    assert duplicate_keys == {k: key for k, key in original_keys.items() if k != ArtifactKind.SOURCE_AUDIO}
     assert store.latest_analysis(duplicate.id).raw_events == store.latest_analysis(original.id).raw_events
+
+
+def test_forced_duplicate_after_source_audio_was_pruned_does_not_download_again(store, storage, clock):
+    extractor, separator, transcriber = FakeExtractor(), FakeSeparator(), FakeTranscriber()
+    engines = make_engines(extractor=extractor, separator=separator, transcriber=transcriber)
+    original, _ = new_project(store, clock)
+    first = run(store, storage, clock, engines)
+    pruned = prune(store, storage, clock(), Settings(_env_file=None))
+    duplicate, _ = new_project(store, clock, title=store.get_project(original.id).title)
+
+    second = run(store, storage, clock, engines)
+
+    assert pruned.deleted_keys == 1
+    assert second.status == JobStatus.COMPLETED
+    assert (extractor.calls, separator.calls, transcriber.calls) == (1, 1, 1)
+    original_keys = {k: a.storage_key for k, a in store.artifacts_for_job(first.id).items()}
+    duplicate_keys = {k: a.storage_key for k, a in store.artifacts_for_job(second.id).items()}
+    assert set(duplicate_keys) == {ArtifactKind.DRUMS_STEM, ArtifactKind.ACCOMPANIMENT_STEM, ArtifactKind.RAW_TRANSCRIPTION}
+    assert all(duplicate_keys[kind] == original_keys[kind] for kind in duplicate_keys)
+    assert store.latest_analysis(duplicate.id).events == store.latest_analysis(original.id).events
+    assert store.get_project(duplicate.id).title == "Fake Song"
+
+
+def test_resumed_job_whose_source_was_pruned_after_separation_does_not_extract_again(store, storage, clock):
+    _, job = new_project(store, clock)
+    extractor = FakeExtractor()
+    first = run(store, storage, clock, make_engines(extractor=extractor, transcriber=FakeTranscriber(error=RuntimeError("x"))))
+    source_key = store.artifacts_for_job(first.id)[ArtifactKind.SOURCE_AUDIO].storage_key
+    storage.delete(source_key)
+    store.mark_storage_keys_pruned({source_key}, clock())
+    clock.advance(31)
+
+    second = run(store, storage, clock, make_engines(extractor=extractor))
+
+    assert second.status == JobStatus.COMPLETED
+    assert extractor.calls == 1
+
+
+def test_stages_that_run_are_logged_and_reused_stages_are_not(store, storage, clock, caplog):
+    engines = make_engines()
+    new_project(store, clock)
+
+    with caplog.at_level(logging.INFO, logger="app.pipeline.runner"):
+        first = run(store, storage, clock, engines)
+        first_messages = list(caplog.messages)
+        caplog.clear()
+        new_project(store, clock)
+        run(store, storage, clock, engines)
+
+    assert [m for m in first_messages if "running stage" in m] == [
+        f"Job {first.id} running stage {stage}" for stage in ("extract", "separate", "transcribe")
+    ]
+    assert not any("running stage" in m for m in caplog.messages)
 
 
 def test_cache_entry_with_missing_file_is_ignored(store, storage, clock):

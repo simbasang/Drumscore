@@ -47,7 +47,7 @@ _STEM_KINDS = {"drums": ArtifactKind.DRUMS_STEM, "accompaniment": ArtifactKind.A
 # real server.
 @lru_cache
 def get_store() -> Store:  # pragma: no cover - production wiring, overridden in tests
-    return create_postgres_store(get_settings().database_url)
+    return create_postgres_store(get_settings().database_url.get_secret_value())
 
 
 @lru_cache

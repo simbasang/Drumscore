@@ -19,7 +19,7 @@ logging.basicConfig(
 async def lifespan(_: FastAPI):
     settings = get_settings()
     if settings.run_migrations_on_startup:
-        upgrade_to_head(settings.database_url)
+        upgrade_to_head(settings.database_url.get_secret_value())
     yield
 
 

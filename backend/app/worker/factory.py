@@ -24,7 +24,7 @@ def default_engines() -> PipelineEngines:
 
 def build_worker(settings: Settings) -> Worker:
     return Worker(
-        store=create_postgres_store(settings.database_url),
+        store=create_postgres_store(settings.database_url.get_secret_value()),
         storage=LocalArtifactStorage(settings.storage_root),
         engines=default_engines(),
         settings=settings,

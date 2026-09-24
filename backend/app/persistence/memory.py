@@ -314,7 +314,7 @@ class InMemoryStore:
             return sum(
                 1
                 for job in self._jobs.values()
-                if job.status not in (JobStatus.COMPLETED, JobStatus.FAILED)
+                if job.status not in TERMINAL_STATUSES
                 and self._projects[job.project_id].deleted_at is None
             )
 

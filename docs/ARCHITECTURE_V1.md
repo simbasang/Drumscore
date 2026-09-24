@@ -39,6 +39,9 @@ Storage distinguishes source audio, stems, raw transcription diagnostics, analys
 ## Observability
 Every job has a correlation ID across API/worker/processing logs. Structured events record stage start/end/duration/failure. Timing diagnostics can compare raw source timestamp, nearest beat/downbeat, quantized musical position and rendered event. Implemented in V1-033; see docs/OPERATIONS.md for the log format, event catalogue, limits and secret handling.
 
+## Deployment
+One backend image runs the API, the workers and the one-shot migration step; a separate frontend image serves Next.js with the API URL as runtime configuration. Postgres and the artifact storage are the only persistent state (two named volumes). `/api/health` is liveness, `/api/ready` and `python -m app.readiness` are readiness. Implemented in V1-034; see docs/DEPLOYMENT.md.
+
 ## Testing
 Unit: timing math, quantization, score transformations, engraving decisions, transport calculations.
 Integration: adapters, API/job lifecycle, persistence, audio assets.

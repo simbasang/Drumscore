@@ -37,6 +37,8 @@ When you add, resolve or move an entry, update the index too.
 | Admission limits are advisory under concurrent requests | API | deferred |
 | Import-time logging configuration leaks into caplog-based tests | tests | deferred |
 | Crash inside `Worker._run_claimed` during failure handling loses job context | worker | deferred |
+| No GPU image: Demucs/DrumScript run on CPU torch | deployment | deferred |
+| Deployment has no TLS/reverse proxy | deployment | deferred |
 
 ---
 
@@ -58,6 +60,10 @@ cross-validating both and preferring the one with higher confidence),
 and/or adding octave-error correction (e.g. checking whether
 half/double the detected tempo fits the onset grid better) to
 `LibrosaTempoEstimator`.
+
+**Further data point (V1-034 container verification):** a real ~113 BPM
+pop song (YouTube `dQw4w9WgXcQ`) produced `tempo_bpm` 57.4, a 0.5x octave
+error, so the ambiguity isn't only the 1.5x case.
 
 **Partially resolved (MVP-011):** `LibrosaTempoEstimator` now detects
 onsets and picks whichever of `tempo`, `tempo*2`, or `tempo/2` best
@@ -744,3 +750,34 @@ occurring specifically during failure handling of an already-failing job;
 the job itself is still recovered correctly through its lease expiring and
 being reclaimed by another worker. Out of scope for V1-033/#84's
 observability/limits brief.
+
+---
+
+## No GPU image: Demucs/DrumScript run on CPU torch
+
+**Found in:** V1-034 (#85)
+
+Both backend environments resolve torch from the PyTorch CPU index on Linux
+(`[tool.uv.sources]` in `backend/pyproject.toml` and
+`backend/drumscript_runner/pyproject.toml`), so the production image carries
+no CUDA libraries and Demucs separation runs on CPU (about 2 minutes for a
+3–4 minute song in the V1-034 verification). That keeps the image at
+~5.6 GB, but throughput per worker is CPU-bound.
+
+**Fix would involve:** a second image variant (or build arg) that resolves
+torch from a CUDA index, a CUDA base image and `gpus:` in Compose, plus
+verifying Demucs actually selects the GPU device.
+
+---
+
+## Deployment has no TLS/reverse proxy
+
+**Found in:** V1-034 (#85)
+
+`deploy/docker-compose.yml` publishes the API and frontend as plain HTTP
+ports. Combined with "No authentication", the stack is only safe on a private
+network. `docs/DEPLOYMENT.md` §8 says so.
+
+**Fix would involve:** a TLS-terminating reverse proxy service (e.g. Caddy or
+Traefik) in the stack, serving frontend and API under one origin (which would
+also make CORS unnecessary), with the `PUBLIC_*` URLs pointing at it.

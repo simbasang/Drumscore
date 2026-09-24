@@ -25,6 +25,9 @@ and a cleanup task (scheduled or triggered on new job creation).
 entry and its `data/jobs/<id>` directory) older than 24 hours,
 triggered at the top of `POST /api/jobs`.
 
+**Superseded (Epic 6 Slice A):** replaced by the pruner's retention
+rules, see docs/PERSISTENCE.md.
+
 ---
 
 ## No concurrency limit on heavy pipeline jobs
@@ -43,6 +46,9 @@ pipeline runs execute concurrently, with the rest waiting in `queued`.
 semaphore (default: 2 concurrent), used by both job creation and
 retry. A job waiting for a slot stays in whatever status it already
 has.
+
+**Superseded (Epic 6 Slice A):** worker process count
+(`WORKER_CONCURRENCY`) bounds concurrent pipelines.
 
 ---
 
@@ -583,3 +589,133 @@ pattern `pause()` already uses.
 wave already spent) since no live caller can reach it; revisit only if a
 future caller invokes `playWithCountIn()` without the existing UI-level
 guard.
+
+---
+
+## Orphaned stage files
+
+**Found in:** Epic 6 Slice A
+
+A crash between `storage.put` (which writes and renames a stage's output file
+into place) and `commit_stage` (which writes the corresponding `artifacts` row
+in the same transaction as the job's status and cache entry) leaves a file at
+the job's storage key with no database row referencing it. `_run_stages`'s
+next run of the same job re-derives the same key and overwrites it via
+`storage.put`, so a job that eventually succeeds or is retried cleans up after
+itself. But a job that is *never* retried (e.g. deliberately abandoned, or one
+whose project is soon after soft-deleted before that stage's job ever runs
+again) leaks that file: the pruner's `disposable_storage_keys` only considers
+keys that have an `artifacts` row, so an orphaned file with no row is invisible
+to it and stays on disk until someone cleans storage manually.
+
+**Fix would involve:** either writing a provisional `artifacts` row before
+`storage.put` (marked pending until `commit_stage` confirms it, so the pruner
+can find and remove it if the job never resumes), or a separate orphan sweep
+that lists storage keys under `projects/<project_id>/<job_id>/` with no
+matching `artifacts` row for jobs whose project is deleted or whose job is
+long-abandoned.
+
+**Deferred:** narrow window (a crash in the few instructions between the
+storage write and the transaction commit), self-healing on any retried job,
+and no user-visible impact — recorded so unexplained storage growth on
+never-retried jobs doesn't get mis-diagnosed later.
+
+---
+
+## Unbounded score history
+
+**Found in:** Epic 6 Slice A
+
+`score_versions` keeps every save as its own row (`PostgresStore.save_score`
+always inserts, never overwrites) with no cap on row count and no compaction of
+old versions. A project edited many times over its lifetime accumulates one
+row per save indefinitely.
+
+**Fix would involve:** a retention policy for old score versions (e.g. keep
+the latest N, or collapse versions older than some age into a single
+snapshot), applied either by the pruner or a separate maintenance pass, being
+careful not to break `base_version` optimistic-concurrency checks for any
+save still in flight against an older version.
+
+**Deferred:** out of scope for Epic 6 Slice A; score JSON is small relative to
+audio/stem artifacts, so this is a slow-growing concern rather than an urgent
+one — revisit if a long-lived project's version count becomes a real problem.
+
+---
+
+## No authentication
+
+**Found in:** Epic 6 Slice A
+
+v1 has no authentication or authorization anywhere in the API. It relies
+entirely on deployment-level access control (private network / reverse-proxy
+auth) to keep it from being reachable by anyone but its intended user. Anyone
+who can reach the API can list, create, retry and delete any project —
+including `DELETE /api/projects/{id}`, which soft-deletes (and, after the next
+prune, permanently purges) another user's work.
+
+**Fix would involve:** adding an auth layer (API keys, session auth, or
+similar) in front of the projects router, plus per-project ownership checks,
+before this is ever deployed somewhere it isn't already behind a private
+network or reverse-proxy auth.
+
+**Deferred:** out of scope for Epic 6 Slice A; acceptable for the current
+single-user, privately-deployed use case; must be resolved before any
+production deployment reachable by more than one trusted party.
+
+---
+
+## Correlation IDs are stored but not yet propagated to logs
+
+**Found in:** Epic 6 Slice A
+
+`jobs.correlation_id` is generated and stored on every job
+(`PostgresStore.create_project_with_job`), but nothing yet threads it into the
+worker's or API's log records, so a job's `correlation_id` can't currently be
+used to grep a single job's full log trail across the API and worker
+processes.
+
+**Fix would involve:** binding `correlation_id` into the logging context (e.g.
+a `logging.LoggerAdapter` or structured-logging `extra=`) for the duration of
+each job's processing in the worker, and logging it alongside the job ID on
+the API's own request-handling logs.
+
+**Deferred:** this is Slice B (#84) — observability/structured logging is a
+separate slice's scope, not Slice A's.
+
+---
+
+## Pruner delete races stage-cache reuse
+
+**Found in:** Epic 6 Slice A (pruner, `backend/app/worker/pruner.py`)
+
+`prune()` computes `disposable_storage_keys` and deletes each key's file in a
+separate step from marking its `artifacts` rows pruned
+(`store.mark_storage_keys_pruned`), all under the maintenance advisory lock —
+but the advisory lock only serializes against *other prune runs*, not against
+a worker concurrently running a pipeline stage. A worker's `_obtain` reads a
+`stage_cache` entry, finds `ctx.storage.exists(a.storage_key)` true, and
+reuses that key (creating a new `artifacts` row pointing at it, see
+`docs/PERSISTENCE.md` §6) with no lock held between that existence check and
+its own later `commit_stage`. If the pruner's disposability query ran (and
+found that key disposable under the *old* set of referencing rows) just
+before the worker's cache hit, and the pruner's `storage.delete(key)` for that
+key executes after the worker's existence check but before the worker's
+`commit_stage`, the worker's new row ends up pointing at a file that no longer
+exists — a silent loss of the reused artifact, not caught until something
+later tries to read it (e.g. `GET /api/projects/{id}/audio/{stem}`, which does
+check `storage.exists` and would correctly 410, or the next pipeline stage
+reading the file, which would error).
+
+**Fix would involve:** re-checking each key's disposability inside the same
+transaction (or under the same lock) as its delete, so a worker's
+cache-hit-driven new row is guaranteed to be visible to the disposability
+check before the file can be removed — e.g. moving the existence-check-and-
+claim into one transaction, or having the pruner re-verify disposability
+immediately before each individual `storage.delete` call rather than only
+once at the start of the run.
+
+**Deferred:** narrow race window (requires a prune run and a cache-hit stage
+claim on the same key to interleave within the run), no reproduction yet —
+recorded per Epic 6 Slice A wrap-up so it isn't lost before Slice B/C's
+production hardening work picks it up.

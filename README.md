@@ -64,6 +64,18 @@ cd frontend
 pnpm test
 ```
 
+## Running locally
+
+```bash
+docker compose -f docker-compose.dev.yml up -d          # Postgres 18
+cd backend && cp .env.example .env
+uv run uvicorn app.main:app --reload                     # API (applies migrations on startup)
+uv run python -m app.worker                              # workers (separate terminal)
+cd ../frontend && pnpm dev                               # http://localhost:3000
+```
+
+Tests: `cd backend && uv run pytest` (needs Docker; `-m "not integration"` skips Postgres tests) and `cd frontend && pnpm test`.
+
 ## Development order
 
 The project is built incrementally, one MVP task from `PROJECT.md` at a time.

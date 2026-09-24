@@ -126,7 +126,8 @@ queued -> downloading -> downloaded -> separating_stems -> stems_separated
 
 Any state can transition to `failed`. A stage whose output is already cached (same
 `(source_key, stage, PIPELINE_VERSION)`, see §6) skips straight to that stage's "done"
-status (`downloaded` / `stems_separated` / `transcribed`) without re-running the engine.
+status (`downloaded` / `stems_separated` / `transcribed`) without re-running the engine;
+when the stems are cached, extraction is skipped entirely (§6).
 Retrying a failed job (`requeue_failed_job`) resets it to `queued` with `attempts = 0`,
 clears `error`, `lease_owner`, `lease_expires_at` and `finished_at`.
 
@@ -161,19 +162,36 @@ multiple worker processes poll concurrently without blocking on each other.
   refused (another worker already reclaimed the job after expiry), the heartbeat sets
   `lost = True`.
 - **Lost lease**: the pipeline runner checks `should_stop()` between stages
-  (`_checkpoint`); if the heartbeat reports loss, it raises `JobAbandoned`. A store
+  (`_checkpoint`); if the heartbeat reports loss, it raises `JobAbandoned` (as it does
+  when a stage raises after the loss was reported). A store
   write against a lease the caller no longer owns raises `LeaseLostError`
   (`_owned_update` in `postgres.py`) — both are caught in `Worker.run_once`, which logs
   and moves on without touching the job further (another worker now owns it).
-- **SIGTERM / graceful stop**: `Worker.stop()` sets an internal flag; `should_stop()`
-  becomes true at the next stage checkpoint, `process_job` raises `JobAbandoned`, and
-  the worker releases its lease (`release_lease`, unless the lease was already lost) so
-  the job is immediately claimable again — no stage is interrupted mid-write.
-- **Attempts vs. `max_attempts`**: `attempts` is incremented on every claim. If a
-  worker is killed hard (no graceful stop), the lease simply expires and the job is
-  reclaimed with `attempts` already incremented for the dead attempt. `Worker.run_once`
-  fails a job outright, without running it, if `attempts > max_attempts` at claim time
-  (this can only happen when the previous attempt died without recording anything).
+- **SIGTERM / Ctrl+C / graceful stop**: the worker's signal handler calls
+  `Worker.stop()`, which only sets a flag. The engine children (Demucs, DrumScript) are
+  started outside the terminal's signal group (`app/engine_process.py`:
+  `CREATE_NEW_PROCESS_GROUP` on Windows, a new session on POSIX), so the signal reaches
+  the worker but not them, and the stage in flight either **finishes** or is
+  **abandoned**:
+  - if the stage finishes, its output is committed as usual and `should_stop()` is true
+    at the next checkpoint (`_checkpoint`), so `process_job` raises `JobAbandoned`;
+  - if the stage raises anything after the stop was requested (for example yt-dlp's
+    in-process ffmpeg child, which does share the terminal's signals, dies with it),
+    `process_job` does not classify the error: it raises `JobAbandoned` instead of
+    failing the job or scheduling a retry.
+
+  Either way the worker then releases its lease (`release_lease`, unless the lease was
+  already lost), which makes the job claimable immediately and refunds the attempt the
+  claim added. Committed stages stay; the next claim resumes after the last one. No
+  stage output is ever half-written: files are renamed into place before their rows
+  are committed (§6).
+- **Attempts vs. `max_attempts`**: `attempts` is incremented on every claim and
+  decremented again (floored at 0) by `release_lease`, so graceful stops and deploys do
+  not use up attempts. If a worker is killed hard (no graceful stop), the lease simply
+  expires and the job is reclaimed with `attempts` already incremented for the dead
+  attempt. `Worker.run_once` fails a job outright, without running it, if
+  `attempts > max_attempts` at claim time (this can only happen when the previous
+  attempt died without recording anything).
 
 ## 5. Failure policy
 
@@ -211,7 +229,15 @@ cache entries are never reused. When a second project is created for a `source_k
 that already has cached stage output (a duplicate submission via `POST /api/projects`
 with `force=true`), its job's stages reuse the same cache entries — its `artifacts`
 rows are created pointing at the *same* `storage_key` strings as the original project's
-artifacts, rather than re-running extraction/separation/transcription.
+artifacts, rather than re-running extraction/separation/transcription. When a usable
+`separate` entry exists (all its files are present), the job skips extraction entirely
+and links the cached stems, so a duplicate submitted after the pruner removed the
+original's source audio (§7) does not download the song again. The duplicate keeps the
+title `POST /api/projects` copied from the existing project.
+
+The runner logs `Job <id> running stage <stage>` just before a stage's engine runs, and
+`Job <id> reusing cached <stage> output` for a cache hit, so the worker log shows which
+stages actually ran (for example, that a duplicate did not download again).
 
 ## 7. Retention
 
@@ -276,15 +302,22 @@ cd backend && uv run alembic upgrade head
 ## 9. Configuration
 
 Env vars read by `backend/app/config.py` (`Settings`, also loadable from `backend/.env`;
-see `backend/.env.example`):
+see `backend/.env.example`). Two rules are validated at startup:
+
+- A relative `STORAGE_ROOT` resolves against the `backend/` directory (the same place
+  `backend/.env` is read from), not the process's working directory, so the API and the
+  workers always use the same storage whatever directory they were started from.
+- `HEARTBEAT_SECONDS` must be less than `LEASE_SECONDS`; otherwise the lease would
+  expire between heartbeats and settings loading fails. When shortening the lease,
+  shorten the heartbeat too.
 
 | Env var                       | Default                                                              |
 |--------------------------------|-----------------------------------------------------------------------|
 | `DATABASE_URL`                 | `postgresql+psycopg://drumscore:drumscore@localhost:5432/drumscore`  |
-| `STORAGE_ROOT`                 | `<backend>/data`                                                     |
+| `STORAGE_ROOT`                 | `<backend>/data` (relative values resolve against `<backend>`)       |
 | `WORKER_CONCURRENCY`           | `2`                                                                   |
 | `LEASE_SECONDS`                | `300`                                                                 |
-| `HEARTBEAT_SECONDS`            | `60`                                                                  |
+| `HEARTBEAT_SECONDS`            | `60` (must be less than `LEASE_SECONDS`)                              |
 | `POLL_INTERVAL_SECONDS`        | `2.0`                                                                 |
 | `MAX_ATTEMPTS`                 | `3`                                                                   |
 | `RETRY_BASE_SECONDS`           | `30`                                                                  |

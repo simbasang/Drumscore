@@ -296,7 +296,8 @@ constant grid - the fallback and its `quantize_events`/
 
 **Found in:** V1-011 final review
 
-`run_tempo_mapping` (`backend/app/job_processor.py`) shifts every stored
+`map_tempo` (`backend/app/pipeline/tempo_mapping.py`; `run_tempo_mapping` in
+the since-removed `backend/app/job_processor.py` when this was found) shifts every stored
 event's `measure` by a uniform `shift` whenever `quantize_events_with_beats`
 placed any event before the first detected beat (extrapolated `measure <= 0`),
 so the frontend's 1-based `buildMeasures` doesn't silently drop it. It stores
@@ -324,8 +325,8 @@ unaffected.
 **Fix would involve:** shifting the stored `beats` list by the same amount
 as the events (so quantization and its inverse share one origin), or
 reporting `quantized_time`/`quantization_error_seconds` from the pre-shift
-measure values. `test_run_tempo_mapping_quantizes_with_beats_and_stores_them`
-(`backend/tests/test_job_processor.py`) already uses the offset-beats
+measure values. `test_map_tempo_shifts_measures_so_pre_first_beat_events_are_kept`
+(`backend/tests/test_tempo_mapping.py`) already uses the offset-beats
 fixture, so a regression test is cheap to add alongside the fix.
 
 **Deferred:** out of scope for V1-011 (#44) - tracked here for a follow-up
@@ -719,3 +720,117 @@ once at the start of the run.
 claim on the same key to interleave within the run), no reproduction yet —
 recorded per Epic 6 Slice A wrap-up so it isn't lost before Slice B/C's
 production hardening work picks it up.
+
+---
+
+## Pruner can leak files of projects deleted during a prune or a running job
+
+**Found in:** Epic 6 Slice A final review
+
+Two ways a soft-deleted project's files outlive its rows:
+
+1. `prune()` (`backend/app/worker/pruner.py`) takes its disposable keys from
+   `disposable_storage_keys` and only later calls `purge_deleted_projects`.
+   A project soft-deleted between those two calls has its rows (including
+   its `artifacts` rows) purged, but its files were never in the disposable
+   set, so they stay on disk with nothing referencing them.
+2. The runner checks for deletion only once, before the first stage
+   (`process_job` in `backend/app/pipeline/runner.py`). A job whose project is
+   deleted while it runs keeps processing, and can write stage files after
+   the pruner has already purged the project's rows, again leaving files no
+   row points at.
+
+**Fix would involve:** taking a purge snapshot time before the disposable
+query and purging only projects deleted before it (so every purged project's
+files were in that run's disposable set), plus a deletion check in the
+runner's `_checkpoint` so a job stops (and fails as "Project was deleted")
+between stages once its project is gone.
+
+**Deferred:** needs a delete to land inside a prune run or a running job;
+the orphaned files are invisible to users and only cost disk space.
+Recorded with the related "Orphaned stage files" entry so storage growth
+isn't mis-diagnosed.
+
+---
+
+## `job.error` can contain absolute filesystem paths
+
+**Found in:** Epic 6 Slice A final review
+
+`_handle_failure` (`backend/app/pipeline/runner.py`) stores the engine's
+message as the job's `error`, and `GET /api/projects/{id}` returns it. Some
+engine messages carry absolute paths: Demucs's stderr
+(`StemSeparationError("Demucs failed: ...")`), the DrumScript runner-missing
+message, and the text of a `FileNotFoundError` or similar OS error wrapped as
+"Unexpected error: ...". That breaks the "the API never returns absolute
+filesystem paths" constraint.
+
+**Fix would involve:** sanitizing the message before it is stored or
+returned (replace `STORAGE_ROOT`, the staging directory and other absolute
+paths with relative keys or a placeholder, and cap the length), keeping the
+unsanitized text in the worker log for diagnostics.
+
+**Deferred:** the API is single-user and privately deployed in v1 (see "No
+authentication"); must be fixed before the API is exposed more widely.
+
+---
+
+## "← All projects" link drops unsaved score edits without a warning
+
+**Found in:** Epic 6 Slice A final review
+
+The project page (`frontend/app/projects/[id]/page.tsx`) links back to the
+library with a Next `<Link>`. The unsaved-changes warning is a
+`beforeunload` handler, which only fires for full page unloads (reload,
+closing the tab, typing a URL), not for client-side navigation, so clicking
+the link discards unsaved edits silently.
+
+**Fix would involve:** a navigation guard for client-side navigation while
+the score is dirty (intercepting the link click and asking for confirmation,
+or disabling/relabelling the link while there are unsaved changes).
+
+**Deferred:** Save and Ctrl/Cmd+S are explicit and the unsaved indicator is
+visible; recorded for the next frontend pass.
+
+---
+
+## Retry backoff shows a stale "in progress" label and hides the error
+
+**Found in:** Epic 6 Slice A final review
+
+While a job waits out a transient-error backoff (`schedule_retry` keeps its
+last in-progress status and sets `error` and a future `available_at`),
+`ProjectView.tsx` shows the status label for that last in-progress status
+(e.g. "Separating drum stems...") and only shows `job.error` once the job is
+`failed`. The user sees what looks like live progress, with no hint that the
+stage failed and will be retried.
+
+**Fix would involve:** returning `available_at` (or a derived "retrying at"
+field) in the job summary and showing "Retrying after an error: ..." with the
+error while `error` is set on a non-terminal job.
+
+**Deferred:** cosmetic; the job does recover (or fail visibly) on its own.
+
+---
+
+## A worker that lost its lease can overwrite the new owner's stage file
+
+**Found in:** Epic 6 Slice A final review
+
+In `_obtain` (`backend/app/pipeline/runner.py`), `storage.put` (and, for the
+extract stage, `set_project_title`) runs before `commit_stage` checks the
+lease. Storage keys are deterministic per job
+(`projects/<project_id>/<job_id>/<file>`), so a worker whose lease has
+already passed to another worker can still rename its output over the file
+the new owner wrote or committed for the same stage, before its own
+`commit_stage` raises `LeaseLostError`.
+
+**Fix would involve:** checking the lease immediately before `storage.put`
+(still racy, but narrower), or making keys unique per attempt (e.g. include
+the claim's attempt number or a random suffix) so two owners never write the
+same key and the committed row always points at the committing owner's file.
+
+**Deferred:** self-limited: the stale worker's heartbeat sets `lost` and it
+abandons at its next checkpoint, both owners run the same deterministic
+engines on the same input, and a lease is only lost after a stall longer than
+`LEASE_SECONDS`.

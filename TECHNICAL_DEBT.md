@@ -36,6 +36,7 @@ When you add, resolve or move an entry, update the index too.
 | Epic 5's manual practice/correction test was never run | QA | deferred |
 | Admission limits are advisory under concurrent requests | API | deferred |
 | Import-time logging configuration leaks into caplog-based tests | tests | deferred |
+| Crash inside `Worker._run_claimed` during failure handling loses job context | worker | deferred |
 
 ---
 
@@ -714,3 +715,32 @@ the app factory/lifespan so importing `app.main` alone has no logging
 side effect.
 
 **Deferred:** test hygiene only; no production effect.
+
+---
+
+## Crash inside `Worker._run_claimed` during failure handling loses job context
+
+**Found in:** V1-033 (#84) final review
+
+`Worker._run_claimed` (`backend/app/worker/worker.py` ~line 138) runs
+`process_job` inside the `log_context(job_id=..., ...)` block opened by
+`run_once`. If something other than `JobAbandoned`/`LeaseLostError`
+escapes `process_job` - e.g. a DB error raised by `fail_job`/
+`schedule_retry` while it's handling the job's own failure - it propagates
+out of `_run_claimed`, out of `run_once`, and through the `log_context`
+block, which resets the context on its way out. `run_forever` then catches
+it and logs `"Worker %s: run_once failed"` with no `job_id`,
+`correlation_id` or `project_id`, and no `job_finished` event is ever
+emitted for that job, so the failure is invisible in job-level metrics/logs.
+
+**Fix would involve:** logging the exception inside the job context, e.g.
+wrapping the `process_job` call (or `_run_claimed` as a whole) in a
+`try/except Exception` that logs an `error` outcome via `_log_finished`
+(or an equivalent event) before re-raising, so the record still carries
+`job_id` and a `job_finished` event is still emitted.
+
+**Deferred:** only reachable on an infrastructure failure (e.g. DB outage)
+occurring specifically during failure handling of an already-failing job;
+the job itself is still recovered correctly through its lease expiring and
+being reclaimed by another worker. Out of scope for V1-033/#84's
+observability/limits brief.

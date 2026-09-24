@@ -862,3 +862,31 @@ survives.
 
 **Deferred:** successful runs are unaffected; only the diagnostics of a
 failing Demucs/DrumScript run are lost.
+
+---
+
+## Epic 5's manual practice/correction test was never run
+
+**Found in:** GitHub cleanup after PR #109 (2026-09-24)
+
+PR #108 (Epic 5, V1-023..V1-028) was merged with the manual item in its
+test plan still unchecked: *generate a song, set an A/B loop, change speed,
+enable count-in and metronome, correct a hit, then undo and redo*. Epic 5
+(#32) and its issues #74-#79 are closed on the strength of the automated
+suites alone (frontend 253/253, backend 222/222 at merge time).
+
+That leaves a gap: the practice transport's Web Audio scheduling (loop
+restart, rate changes, metronome/count-in timing) and the correction
+editor's interaction with the rendered score have not been checked end to
+end in a real browser against real audio. Earlier epics showed that jsdom
+tests miss real-browser rendering and timing defects (see the V1-019 beam
+and V1-022 clipping findings).
+
+**Fix would involve:** running the manual scenario above against a real
+generated song in a browser, confirming stems stay in sync through loop,
+seek and rate changes, that metronome clicks and count-in land on the beat,
+and that edits and undo/redo update the score and playback correctly;
+filing issues for anything that fails.
+
+**Deferred:** do this before release, at the latest as part of V1-035
+(#86, v1.0 E2E, performance and release gate).

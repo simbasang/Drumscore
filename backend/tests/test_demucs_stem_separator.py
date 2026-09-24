@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.demucs_stem_separator import DemucsStemSeparator
+from app.engine_process import detached_process_kwargs
 from app.stem_separation import StemSeparationError
 
 
@@ -45,6 +46,7 @@ def test_separate_invokes_demucs_with_two_stems_drums_flag(tmp_path):
             capture_output=True,
             text=True,
             timeout=600,
+            **detached_process_kwargs(),
         )
 
 

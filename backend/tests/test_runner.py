@@ -3,6 +3,7 @@ from datetime import timedelta
 import pytest
 
 from app.audio_extraction import AudioExtractionError
+from app.stem_separation import StemSeparationError
 from app.persistence.memory import InMemoryStore
 from app.persistence.models import ArtifactKind, JobStatus, LeaseLostError
 from app.pipeline.runner import JobAbandoned, JobContext, process_job
@@ -212,6 +213,36 @@ def test_stop_request_abandons_between_stages_after_committing_output(store, sto
 
     assert ArtifactKind.SOURCE_AUDIO in store.artifacts_for_job(job.id)
     assert store.get_job(job.id).status == JobStatus.DOWNLOADED
+
+
+def test_engine_error_after_a_stop_request_abandons_instead_of_failing(store, storage, clock):
+    _, job = new_project(store, clock)
+    stop = {"requested": False}
+    separator = FakeSeparator(
+        error=StemSeparationError("Demucs failed: interrupted"), on_call=lambda: stop.update(requested=True)
+    )
+
+    with pytest.raises(JobAbandoned):
+        run(store, storage, clock, make_engines(separator=separator), should_stop=lambda: stop["requested"])
+
+    abandoned = store.get_job(job.id)
+    assert abandoned.status == JobStatus.SEPARATING_STEMS
+    assert abandoned.error is None
+    assert abandoned.finished_at is None
+    assert abandoned.available_at == clock()
+    assert abandoned.lease_owner == OWNER
+
+
+def test_transient_error_after_a_stop_request_does_not_schedule_a_retry(store, storage, clock):
+    _, job = new_project(store, clock)
+    stop = {"requested": False}
+    separator = FakeSeparator(error=RuntimeError("killed"), on_call=lambda: stop.update(requested=True))
+
+    with pytest.raises(JobAbandoned):
+        run(store, storage, clock, make_engines(separator=separator), should_stop=lambda: stop["requested"])
+
+    assert store.get_job(job.id).error is None
+    assert store.get_job(job.id).available_at == clock()
 
 
 def test_lost_lease_propagates_and_commits_nothing(store, storage, clock):

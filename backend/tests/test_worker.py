@@ -11,7 +11,8 @@ from app.persistence.models import ArtifactKind, JobStatus
 from app.storage import LocalArtifactStorage
 from app.worker import worker as worker_module
 from app.worker.worker import Worker, default_owner
-from tests.fakes import FakeClock, FakeExtractor, make_engines
+from app.stem_separation import StemSeparationError
+from tests.fakes import FakeClock, FakeExtractor, FakeSeparator, make_engines
 
 
 def settings(**overrides):
@@ -98,6 +99,84 @@ def test_stop_during_a_job_releases_the_lease_after_the_current_stage(parts):
     assert released.status == JobStatus.DOWNLOADED
     assert ArtifactKind.SOURCE_AUDIO in store.artifacts_for_job(job.id)
     assert store.claim_next_job("w2", 300, clock()).id == job.id
+
+
+def test_stop_that_kills_the_engine_releases_the_lease_and_refunds_the_attempt(parts):
+    store, storage, clock = parts
+    _, job = enqueue(store, clock)
+    holder = {}
+
+    def stop_and_lose_the_child():
+        holder["w"].stop()
+        raise StemSeparationError("Demucs failed: interrupted")
+
+    separator = FakeSeparator(on_call=stop_and_lose_the_child)
+    worker = make_worker(store, storage, clock, make_engines(separator=separator))
+    holder["w"] = worker
+
+    worker.run_once()
+
+    released = store.get_job(job.id)
+    assert released.status == JobStatus.SEPARATING_STEMS
+    assert released.error is None
+    assert released.lease_owner is None
+    assert released.attempts == 0
+    assert store.claim_next_job("w2", 300, clock()).id == job.id
+
+
+class LeaseStolenAfterFirstCommitStore:
+    """Delegates to `inner`. Right after the first committed stage another
+    worker reclaims the job, and the call returns only once the heartbeat
+    has been refused, so `heartbeat.lost` is set before the runner's next
+    checkpoint. Records every release_lease call."""
+
+    def __init__(self, inner, clock):
+        self._inner = inner
+        self._clock = clock
+        self._stolen = False
+        self.refused_extensions = 0
+        self.releases = []
+
+    def commit_stage(self, *args, **kwargs):
+        created = self._inner.commit_stage(*args, **kwargs)
+        if not self._stolen:
+            self._stolen = True
+            self._inner.claim_next_job("thief", 300, self._clock() + timedelta(days=1))
+            deadline = time.monotonic() + 5
+            while self.refused_extensions == 0 and time.monotonic() < deadline:
+                time.sleep(0.005)
+        return created
+
+    def extend_lease(self, *args, **kwargs):
+        extended = self._inner.extend_lease(*args, **kwargs)
+        if not extended:
+            self.refused_extensions += 1
+        return extended
+
+    def release_lease(self, *args, **kwargs):
+        self.releases.append(args)
+        return self._inner.release_lease(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+def test_lost_heartbeat_abandons_the_job_and_releases_nothing(parts, caplog):
+    store, storage, clock = parts
+    _, job = enqueue(store, clock)
+    stealing = LeaseStolenAfterFirstCommitStore(store, clock)
+    separator = FakeSeparator()
+
+    with caplog.at_level(logging.INFO):
+        make_worker(stealing, storage, clock, make_engines(separator=separator)).run_once()
+
+    stolen = store.get_job(job.id)
+    assert stealing.releases == []
+    assert stolen.lease_owner == "thief"
+    assert stolen.attempts == 2
+    assert stolen.status == JobStatus.DOWNLOADED
+    assert separator.calls == 0
+    assert "abandoned job" in caplog.text
 
 
 def test_lost_lease_is_logged_not_raised(parts, caplog):

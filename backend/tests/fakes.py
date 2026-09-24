@@ -59,12 +59,15 @@ class FakeExtractor:
 
 
 class FakeSeparator:
-    def __init__(self, error: BaseException | None = None) -> None:
+    def __init__(self, error: BaseException | None = None, on_call=None) -> None:
         self.error = error
+        self.on_call = on_call
         self.calls = 0
 
     def separate(self, audio_path: Path, destination_dir: Path) -> SeparatedStems:
         self.calls += 1
+        if self.on_call:
+            self.on_call()
         if self.error:
             raise self.error
         assert audio_path.read_bytes() == b"fake source audio"

@@ -64,7 +64,8 @@ class JobContext:
 
 class JobAbandoned(Exception):
     """Raised between stages when the worker is stopping or has lost its
-    lease; committed stages stay, the rest resumes on the next claim."""
+    lease, or when a stage fails after a stop was requested; committed
+    stages stay, the rest resumes on the next claim."""
 
 
 def process_job(job: Job, ctx: JobContext) -> None:
@@ -82,7 +83,13 @@ def process_job(job: Job, ctx: JobContext) -> None:
         _run_stages(job, project, ctx)
     except (JobAbandoned, LeaseLostError):
         raise
-    except Exception as error:  # noqa: BLE001 - every failure must end in fail or retry
+    except Exception as error:  # noqa: BLE001 - every failure must end in fail, retry or abandon
+        if ctx.should_stop():
+            # A stop (or lost lease) was already requested, so the error is
+            # most likely the stop itself (an engine child or yt-dlp's ffmpeg
+            # killed by the same signal) and says nothing about the input.
+            logger.info("Job %s: stage ended with %r after a stop request; abandoning", job.id, error)
+            raise JobAbandoned(job.id) from error
         _handle_failure(job, ctx, error)
 
 

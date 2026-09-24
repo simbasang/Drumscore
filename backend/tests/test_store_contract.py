@@ -1,3 +1,4 @@
+import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -439,3 +440,45 @@ def test_maintenance_lock_is_exclusive(store):
 
     with store.maintenance_lock() as again:
         assert again is True
+
+
+@pytest.mark.integration
+def test_concurrent_claims_hand_a_job_to_exactly_one_worker(postgres_store):
+    create(postgres_store)
+    barrier = threading.Barrier(8)
+    results = []
+
+    def claim(owner):
+        barrier.wait()
+        results.append(postgres_store.claim_next_job(owner, LEASE, NOW))
+
+    threads = [threading.Thread(target=claim, args=(f"w{i}",)) for i in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len([r for r in results if r is not None]) == 1
+
+
+@pytest.mark.integration
+def test_concurrent_saves_from_same_base_version_conflict(postgres_store):
+    project, job = create(postgres_store)
+    analysis = complete(postgres_store, job.id)
+    barrier = threading.Barrier(4)
+    outcomes = []
+
+    def save():
+        barrier.wait()
+        try:
+            outcomes.append(postgres_store.save_score(project.id, analysis.id, {"measures": []}, None, NOW).version)
+        except ScoreVersionConflictError:
+            outcomes.append("conflict")
+
+    threads = [threading.Thread(target=save) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert sorted(outcomes, key=str) == [1, "conflict", "conflict", "conflict"]

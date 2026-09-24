@@ -302,3 +302,55 @@ class InMemoryStore:
             self._scores.append(saved)
             self._touch_project(project_id, now)
             return saved
+
+    # --- lifecycle ----------------------------------------------------------
+    def _row_is_disposable(self, artifact: Artifact, failed_before: datetime) -> bool:
+        project = self._projects[artifact.project_id]
+        job = self._jobs[artifact.job_id]
+        if project.deleted_at is not None:
+            return True
+        if job.status == JobStatus.FAILED and job.finished_at is not None and job.finished_at < failed_before:
+            return True
+        return artifact.kind == ArtifactKind.SOURCE_AUDIO and job.status == JobStatus.COMPLETED
+
+    def disposable_storage_keys(self, failed_before):
+        with self._lock:
+            rows_by_key: dict[str, list[Artifact]] = {}
+            for artifact in self._artifacts.values():
+                if artifact.pruned_at is None:
+                    rows_by_key.setdefault(artifact.storage_key, []).append(artifact)
+            return {
+                key
+                for key, rows in rows_by_key.items()
+                if all(self._row_is_disposable(row, failed_before) for row in rows)
+            }
+
+    def mark_storage_keys_pruned(self, keys, now):
+        with self._lock:
+            for artifact_id, artifact in list(self._artifacts.items()):
+                if artifact.storage_key in keys and artifact.pruned_at is None:
+                    self._artifacts[artifact_id] = dataclasses.replace(artifact, pruned_at=now)
+            self._cache = {
+                cache_key: entry
+                for cache_key, entry in self._cache.items()
+                if not any(a.storage_key in keys for a in entry.artifacts)
+            }
+
+    def purge_deleted_projects(self):
+        with self._lock:
+            doomed = {pid for pid, p in self._projects.items() if p.deleted_at is not None}
+            self._projects = {pid: p for pid, p in self._projects.items() if pid not in doomed}
+            self._jobs = {jid: j for jid, j in self._jobs.items() if j.project_id not in doomed}
+            self._artifacts = {aid: a for aid, a in self._artifacts.items() if a.project_id not in doomed}
+            self._analyses = {aid: a for aid, a in self._analyses.items() if a.project_id not in doomed}
+            self._scores = [s for s in self._scores if s.project_id not in doomed]
+            return len(doomed)
+
+    @contextmanager
+    def maintenance_lock(self) -> Iterator[bool]:
+        acquired = self._maintenance.acquire(blocking=False)
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                self._maintenance.release()

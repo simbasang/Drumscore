@@ -351,3 +351,91 @@ def test_requeue_ignores_non_failed_and_unknown_jobs(store):
 
     assert store.requeue_failed_job(job.id, NOW) is None
     assert store.requeue_failed_job("00000000-0000-0000-0000-000000000000", NOW) is None
+
+
+def run_stage(store, job_id, artifacts, owner=OWNER, now=NOW, cache_entry=None):
+    store.claim_next_job(owner, LEASE, now)
+    return store.commit_stage(job_id, owner, JobStatus.DOWNLOADED, artifacts, cache_entry, now)
+
+
+def test_source_audio_of_completed_job_is_disposable_but_stems_are_not(store):
+    _, job = create(store)
+    run_stage(store, job.id, [descriptor(), descriptor(ArtifactKind.DRUMS_STEM, "k/drums.wav")])
+    store.complete_job(job.id, OWNER, sample_analysis(), NOW)
+
+    keys = store.disposable_storage_keys(failed_before=NOW - timedelta(days=7))
+
+    assert keys == {"projects/p/j/source.wav"}
+
+
+def test_failed_job_artifacts_are_disposable_only_after_retention(store):
+    _, job = create(store)
+    run_stage(store, job.id, [descriptor(ArtifactKind.DRUMS_STEM, "k/drums.wav")])
+    store.fail_job(job.id, OWNER, "boom", NOW)
+
+    assert store.disposable_storage_keys(failed_before=NOW) == set()
+    assert store.disposable_storage_keys(failed_before=NOW + timedelta(seconds=1)) == {"k/drums.wav"}
+
+
+def test_deleted_project_artifacts_are_disposable(store):
+    project, job = create(store)
+    run_stage(store, job.id, [descriptor(ArtifactKind.DRUMS_STEM, "k/drums.wav")])
+    store.soft_delete_project(project.id, NOW)
+
+    assert store.disposable_storage_keys(failed_before=NOW) == {"k/drums.wav"}
+
+
+def test_key_shared_with_a_live_row_is_not_disposable(store):
+    deleted, deleted_job = create(store, key="youtube:abc", now=NOW)
+    run_stage(store, deleted_job.id, [descriptor(ArtifactKind.DRUMS_STEM, "shared/drums.wav")])
+    store.complete_job(deleted_job.id, OWNER, sample_analysis(), NOW)
+    store.soft_delete_project(deleted.id, NOW)
+    _, live_job = create(store, key="youtube:abc", now=NOW + timedelta(seconds=1))
+    run_stage(store, live_job.id, [descriptor(ArtifactKind.DRUMS_STEM, "shared/drums.wav")], now=NOW + timedelta(seconds=1))
+
+    assert store.disposable_storage_keys(failed_before=NOW + timedelta(days=1)) == set()
+
+
+def test_mark_pruned_sets_pruned_at_and_drops_referencing_cache_entries(store):
+    _, job = create(store)
+    source = descriptor()
+    entry = CacheEntry(source_key="youtube:abc", stage=Stage.EXTRACT, pipeline_version="1", artifacts=(source,))
+    run_stage(store, job.id, [source], cache_entry=entry)
+
+    store.mark_storage_keys_pruned({"projects/p/j/source.wav"}, NOW + timedelta(hours=1))
+
+    artifact = store.artifacts_for_job(job.id)[ArtifactKind.SOURCE_AUDIO]
+    assert artifact.pruned_at == NOW + timedelta(hours=1)
+    assert store.get_cache_entry("youtube:abc", Stage.EXTRACT, "1") is None
+    assert store.disposable_storage_keys(failed_before=NOW + timedelta(days=30)) == set()
+
+
+def test_mark_pruned_with_no_keys_is_a_no_op(store):
+    store.mark_storage_keys_pruned(set(), NOW)
+
+
+def test_purge_deleted_projects_removes_their_rows(store):
+    doomed, doomed_job = create(store, key="youtube:a")
+    kept, _ = create(store, key="youtube:b")
+    analysis = complete(store, doomed_job.id)
+    store.save_score(doomed.id, analysis.id, {"measures": []}, None, NOW)
+    store.soft_delete_project(doomed.id, NOW)
+
+    purged = store.purge_deleted_projects()
+
+    assert purged == 1
+    assert store.get_project(doomed.id) is None
+    assert store.get_job(doomed_job.id) is None
+    assert store.latest_analysis(doomed.id) is None
+    assert store.latest_score(doomed.id) is None
+    assert store.get_project(kept.id) is not None
+
+
+def test_maintenance_lock_is_exclusive(store):
+    with store.maintenance_lock() as first:
+        with store.maintenance_lock() as second:
+            assert first is True
+            assert second is False
+
+    with store.maintenance_lock() as again:
+        assert again is True

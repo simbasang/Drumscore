@@ -143,6 +143,45 @@ def test_text_formatter_redacts_passwords():
     assert "postgresql://u:***@db/x" in line
 
 
+REPLACEMENT_CHARACTER = chr(0xFFFD)
+NON_LATIN_CHARACTER = chr(0x65E5)
+UNREPRESENTABLE_MESSAGE = f"bad byte {REPLACEMENT_CHARACTER} and non-latin {NON_LATIN_CHARACTER}"
+
+
+def configure_and_log(fmt, stream, message):
+    root = logging.getLogger()
+    before = list(root.handlers)
+    try:
+        configure_logging("INFO", fmt, stream=stream)
+        logging.getLogger("tests.observability").info(message)
+        stream.flush()
+    finally:
+        for handler in list(root.handlers):
+            if handler not in before:
+                root.removeHandler(handler)
+
+
+def test_json_logging_survives_a_stream_encoding_that_cannot_represent_the_message():
+    raw = io.BytesIO()
+    stream = io.TextIOWrapper(raw, encoding="cp1252")
+
+    configure_and_log("json", stream, UNREPRESENTABLE_MESSAGE)
+
+    payload = json.loads(raw.getvalue().decode("cp1252").strip())
+    assert payload["message"] == UNREPRESENTABLE_MESSAGE
+
+
+def test_text_logging_survives_a_stream_encoding_that_cannot_represent_the_message():
+    raw = io.BytesIO()
+    stream = io.TextIOWrapper(raw, encoding="cp1252")
+
+    configure_and_log("text", stream, UNREPRESENTABLE_MESSAGE)
+
+    line = raw.getvalue().decode("cp1252")
+    assert "bad byte" in line
+    assert REPLACEMENT_CHARACTER.encode("cp1252", errors="backslashreplace").decode("cp1252") in line
+    assert NON_LATIN_CHARACTER.encode("cp1252", errors="backslashreplace").decode("cp1252") in line
+
 def test_configure_logging_installs_one_root_handler_and_routes_uvicorn_logs():
     stream = io.StringIO()
     root = logging.getLogger()

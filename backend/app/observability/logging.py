@@ -73,7 +73,7 @@ class JsonFormatter(logging.Formatter):
             payload.setdefault(key, value)
         if record.exc_info:
             payload["exc"] = self.formatException(record.exc_info)
-        return redact(json.dumps(payload, default=str, ensure_ascii=False))
+        return redact(json.dumps(payload, default=str, ensure_ascii=True))
 
 
 class TextFormatter(logging.Formatter):
@@ -97,7 +97,16 @@ def configure_logging(level: str = "INFO", fmt: Literal["json", "text"] = "json"
     for handler in list(root.handlers):
         if getattr(handler, "drumscore", False):
             root.removeHandler(handler)
-    handler = logging.StreamHandler(stream or sys.stdout)
+    target = stream or sys.stdout
+    if hasattr(target, "reconfigure"):
+        # The default stdout encoding (e.g. cp1252 when stdout is redirected
+        # on Windows) can't represent every character a log message may
+        # contain (engine stderr decoded with errors="replace" produces
+        # U+FFFD, for example). Without this, logging's own StreamHandler
+        # raises UnicodeEncodeError on write, prints "--- Logging error ---"
+        # to stderr, and silently drops the record.
+        target.reconfigure(errors="backslashreplace")
+    handler = logging.StreamHandler(target)
     handler.setFormatter(JsonFormatter() if fmt == "json" else TextFormatter())
     handler.drumscore = True  # type: ignore[attr-defined]
     root.addHandler(handler)

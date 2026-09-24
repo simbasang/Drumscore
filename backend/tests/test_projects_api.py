@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -10,20 +12,20 @@ from app.persistence.models import ArtifactKind
 from app.pipeline.runner import JobContext, process_job
 from app.storage import LocalArtifactStorage
 from app.youtube_source import YouTubeSourceValidator
-from tests.fakes import FakeClock, FakeExtractor, make_engines
+from tests.fakes import FakeClock, FakeExtractor, logged_events, make_engines
 
 URL = "https://youtu.be/dQw4w9WgXcQ"
 OTHER_URL = "https://youtu.be/aaaaaaaaaaa"
 MISSING = "00000000-0000-0000-0000-000000000000"
 
 
-def override(store, storage, clock):
+def override(store, storage, clock, settings=None):
     app.dependency_overrides.update({
         get_store: lambda: store,
         get_storage: lambda: storage,
         get_source_validator: YouTubeSourceValidator,
         get_clock: lambda: clock,
-        get_app_settings: lambda: Settings(_env_file=None),
+        get_app_settings: lambda: settings or Settings(_env_file=None),
     })
 
 
@@ -46,9 +48,10 @@ class Harness:
         return project_id
 
 
-def make_harness(store, tmp_path):
+def make_harness(store, tmp_path, **setting_overrides):
     storage, clock = LocalArtifactStorage(tmp_path / "s"), FakeClock()
-    override(store, storage, clock)
+    settings = Settings(_env_file=None, **setting_overrides) if setting_overrides else None
+    override(store, storage, clock, settings)
     return Harness(store, storage, clock)
 
 
@@ -66,10 +69,95 @@ def memory_harness(tmp_path):
     app.dependency_overrides.clear()
 
 
+@pytest.fixture
+def limited_harness(store, tmp_path):
+    def build(**overrides):
+        return make_harness(store, tmp_path, **overrides)
+
+    yield build
+    app.dependency_overrides.clear()
+
+
 def test_create_rejects_urls_longer_than_2048_characters(harness):
     response = harness.create("https://youtu.be/dQw4w9WgXcQ?x=" + "a" * 2048)
 
     assert response.status_code == 422
+
+
+def test_create_is_refused_with_503_when_too_many_jobs_are_active(limited_harness):
+    harness = limited_harness(max_active_jobs=1)
+    harness.create()
+
+    response = harness.create(OTHER_URL)
+
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "60"
+    assert "Too many jobs" in response.json()["detail"]
+    assert len(harness.store.list_live_projects()) == 1
+
+
+def test_create_is_accepted_again_once_a_job_finishes(limited_harness):
+    harness = limited_harness(max_active_jobs=1)
+    harness.create()
+    harness.process_next()
+
+    response = harness.create(OTHER_URL)
+
+    assert response.status_code == 201
+
+
+def test_create_is_refused_with_507_when_storage_is_full(limited_harness):
+    harness = limited_harness(storage_max_bytes=1, storage_warn_bytes=1)
+    harness.completed_project()
+
+    response = harness.create(OTHER_URL)
+
+    assert response.status_code == 507
+    assert "Storage is full" in response.json()["detail"]
+
+
+def test_duplicate_check_runs_before_admission(limited_harness):
+    harness = limited_harness(max_active_jobs=1)
+    harness.create()
+
+    response = harness.create()
+
+    assert response.status_code == 409
+
+
+def test_retry_is_refused_with_503_when_too_many_jobs_are_active(limited_harness):
+    harness = limited_harness(max_active_jobs=1)
+    failed_id = harness.create().json()["project"]["id"]
+    harness.process_next(make_engines(extractor=FakeExtractor(error=AudioExtractionError("gone"))))
+    harness.create(OTHER_URL)
+
+    response = harness.client.post(f"/api/projects/{failed_id}/retry")
+
+    assert response.status_code == 503
+
+
+def test_create_logs_project_created_with_correlation_ids(harness, caplog):
+    with caplog.at_level(logging.INFO, logger="app.api.projects"):
+        body = harness.create().json()
+
+    event = logged_events(caplog, "project_created")[0]
+    job = harness.store.get_job(body["job"]["id"])
+    assert event["project_id"] == body["project"]["id"]
+    assert event["job_id"] == job.id
+    assert event["correlation_id"] == job.correlation_id
+    assert event["request_id"]
+
+
+def test_retry_logs_job_requeued_with_correlation_ids(harness, caplog):
+    project_id = harness.create().json()["project"]["id"]
+    job = harness.process_next(make_engines(extractor=FakeExtractor(error=AudioExtractionError("gone"))))
+
+    with caplog.at_level(logging.INFO, logger="app.api.projects"):
+        harness.client.post(f"/api/projects/{project_id}/retry")
+
+    event = logged_events(caplog, "job_requeued")[0]
+    assert event["job_id"] == job.id
+    assert event["correlation_id"] == job.correlation_id
 
 
 def test_create_enqueues_a_project_without_running_the_pipeline(harness):

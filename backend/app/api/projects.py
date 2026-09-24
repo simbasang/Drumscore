@@ -29,6 +29,7 @@ from app.clock import utc_now
 from app.config import Settings, get_settings
 from app.diagnostics import build_event_diagnostics
 from app.media_source import InvalidSourceUrlError, MediaSourceValidator
+from app.observability.logging import log_context, log_event
 from app.persistence.models import Analysis, ArtifactKind, JobStatus, Project, ScoreVersionConflictError
 from app.persistence.postgres import create_postgres_store
 from app.persistence.store import Store
@@ -82,6 +83,22 @@ def _live_project(store: Store, project_id: str) -> Project:
     return project
 
 
+def _admit_new_job(store: Store, settings: Settings) -> None:
+    """Refuses new work while storage or the job queue is at its limit.
+    Advisory under concurrency: two requests at the limit can both pass,
+    so the queue can overshoot by the number of simultaneous requests."""
+    if store.live_artifact_bytes() >= settings.storage_max_bytes:
+        raise HTTPException(
+            status_code=507, detail="Storage is full; delete projects or raise STORAGE_MAX_BYTES"
+        )
+    if store.count_active_jobs() >= settings.max_active_jobs:
+        raise HTTPException(
+            status_code=503,
+            detail="Too many jobs are queued or running; try again later",
+            headers={"Retry-After": "60"},
+        )
+
+
 def _require_analysis(store: Store, project: Project, what: str) -> Analysis:
     analysis = store.latest_analysis(project.id)
     if analysis is None:
@@ -114,6 +131,8 @@ def create_project(
             content={"detail": "A project for this song already exists", "existing_project_id": existing.id},
         )
 
+    _admit_new_job(store, settings)
+
     project, job = store.create_project_with_job(
         source_kind=source.provider,
         source_url=url,
@@ -122,7 +141,8 @@ def create_project(
         max_attempts=settings.max_attempts,
         now=clock(),
     )
-    logger.info("Created project %s (job %s, correlation %s)", project.id, job.id, job.correlation_id)
+    with log_context(project_id=project.id, job_id=job.id, correlation_id=job.correlation_id):
+        log_event(logger, "project_created", source_key=source_key)
     return CreateProjectResponse(project=ProjectResponse.build(project, job), job=JobSummaryResponse.from_job(job))
 
 
@@ -148,13 +168,17 @@ def delete_project(
 
 @router.post("/{project_id}/retry", status_code=202, response_model=JobSummaryResponse)
 def retry_project(
-    project_id: str, store: Store = Depends(get_store), clock: Callable[[], datetime] = Depends(get_clock)
+    project_id: str,
+    store: Store = Depends(get_store),
+    clock: Callable[[], datetime] = Depends(get_clock),
+    settings: Settings = Depends(get_app_settings),
 ) -> JobSummaryResponse:
     project = _live_project(store, project_id)
     job = store.latest_job(project.id)
     if job is None or job.status != JobStatus.FAILED:
         status = job.status.value if job else "unknown"
         raise HTTPException(status_code=409, detail=f"Only a failed job can be retried; current status is {status}")
+    _admit_new_job(store, settings)
     requeued = store.requeue_failed_job(job.id, clock())
     if requeued is None:
         # Another request requeued (or otherwise changed) the job between the
@@ -162,6 +186,8 @@ def retry_project(
         raise HTTPException(
             status_code=409, detail="Only a failed job can be retried; it was requeued or changed meanwhile"
         )
+    with log_context(project_id=project.id, job_id=requeued.id, correlation_id=requeued.correlation_id):
+        log_event(logger, "job_requeued")
     return JobSummaryResponse.from_job(requeued)
 
 

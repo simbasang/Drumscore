@@ -3,6 +3,7 @@ import React from "react";
 
 import type { AnalysisEvent } from "@/lib/api/types";
 import { useScoreEditor } from "../useScoreEditor";
+import type { Score } from "../types";
 
 function event(overrides: Partial<AnalysisEvent>): AnalysisEvent {
   return {
@@ -172,5 +173,64 @@ describe("useScoreEditor", () => {
     expect(result.current.canUndo).toBe(false);
     const noteSlot = result.current.score.measures[0].find((slot) => slot.type === "note");
     expect(noteSlot?.type === "note" && noteSlot.hits[0].instrument).toBe("snare");
+  });
+});
+
+const SAVE_EVENTS: AnalysisEvent[] = [
+  { id: "e1", time: 0, instrument: "kick", confidence: null, provenance: "drumscript", measure: 1, beat: 1, subdivision: 0 },
+];
+
+const SAVED_SCORE: Score = {
+  measures: [[{ type: "rest", id: "saved-rest", position: { measure: 1, beat: 1, subdivision: 0 }, duration: "w" }]],
+};
+
+describe("useScoreEditor saved state", () => {
+  it("should start from the initial score when one is provided", () => {
+    const { result } = renderHook(() => useScoreEditor(SAVE_EVENTS, SAVED_SCORE));
+
+    expect(result.current.score).toBe(SAVED_SCORE);
+  });
+
+  it("should not be dirty before any edit", () => {
+    const { result } = renderHook(() => useScoreEditor(SAVE_EVENTS));
+
+    expect(result.current.isDirty).toBe(false);
+  });
+
+  it("should become dirty after an edit", () => {
+    const { result } = renderHook(() => useScoreEditor(SAVE_EVENTS));
+
+    act(() => result.current.addHit({ measure: 1, beat: 2, subdivision: 0 }, "snare"));
+
+    expect(result.current.isDirty).toBe(true);
+  });
+
+  it("should be clean after marking the current score as saved", () => {
+    const { result } = renderHook(() => useScoreEditor(SAVE_EVENTS));
+    act(() => result.current.addHit({ measure: 1, beat: 2, subdivision: 0 }, "snare"));
+
+    act(() => result.current.markSaved(result.current.score));
+
+    expect(result.current.isDirty).toBe(false);
+  });
+
+  it("should stay dirty when an older score is marked saved", () => {
+    const { result } = renderHook(() => useScoreEditor(SAVE_EVENTS));
+    act(() => result.current.addHit({ measure: 1, beat: 2, subdivision: 0 }, "snare"));
+    const snapshot = result.current.score;
+    act(() => result.current.addHit({ measure: 1, beat: 3, subdivision: 0 }, "kick"));
+
+    act(() => result.current.markSaved(snapshot));
+
+    expect(result.current.isDirty).toBe(true);
+  });
+
+  it("should be clean again after undoing back to the saved score", () => {
+    const { result } = renderHook(() => useScoreEditor(SAVE_EVENTS));
+    act(() => result.current.addHit({ measure: 1, beat: 2, subdivision: 0 }, "snare"));
+
+    act(() => result.current.undo());
+
+    expect(result.current.isDirty).toBe(false);
   });
 });

@@ -1,6 +1,16 @@
 # Claude instructions — Drumscore v1.0
 
-Before changing code, read PROJECT.md, docs/ARCHITECTURE_V1.md, TECHNICAL_DEBT.md and the GitHub issue you were asked to implement. The issue is the immediate scope; the project and architecture documents define constraints.
+Before changing code, read the GitHub issue you were asked to implement, PROJECT.md, docs/ARCHITECTURE_V1.md and the **index** at the top of TECHNICAL_DEBT.md (not the whole file — open only the entries for areas you touch). The issue is the immediate scope; the project and architecture documents define constraints. Read each of these once per session; subagents get the relevant excerpts in their prompt instead of re-reading them.
+
+## Token budget
+Keep token use low; this repo's sessions have been very expensive.
+
+- **Plans** (overrides superpowers:writing-plans' "complete code in every step"): per task state goal, files, interfaces/signatures, test names with the key assertion, and any non-obvious detail. No full implementation code; full test/code bodies only for genuinely tricky logic. Aim for under ~15 KB per plan.
+- **Execution:** inline by default. Use subagent-driven development only for plans with many (roughly 6+) independent tasks. Then: implementers on `model: "sonnet"`, one combined spec+quality review per task, and keep the final whole-branch review (it has caught real bugs). Dispatch prompts carry the task text and file paths, not "read the plan/docs".
+- **Tests:** run quietly and targeted while iterating; the full suites only before commit/PR.
+  - Backend: `uv run pytest -q --tb=short` (add a path or `-k` while iterating).
+  - Frontend: `npx jest <path> --silent --reporters=summary` (path first; drop it for the full suite).
+- **Reading:** use Grep and `offset`/`limit` for large files; don't re-read files already in context. `.rgignore` hides `docs/superpowers/plans/` and `.superpowers/` from searches; read only the current plan/ledger, by exact path.
 
 ## Working method
 Work one implementation issue at a time unless explicitly instructed otherwise.

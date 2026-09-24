@@ -109,3 +109,19 @@ class FakeBeatDetector:
         if self.error:
             raise self.error
         return list(self.beats)
+
+
+def make_engines(**overrides):
+    from app.pipeline.runner import PipelineEngines
+    from app.youtube_source import YouTubeSourceValidator
+
+    engines = {
+        "source_validator": YouTubeSourceValidator(),
+        "extractor": FakeExtractor(),
+        "separator": FakeSeparator(),
+        "transcriber": FakeTranscriber(),
+        "tempo_estimator": FakeTempoEstimator(),
+        "beat_detector": FakeBeatDetector(),
+    }
+    engines.update(overrides)
+    return PipelineEngines(**engines)

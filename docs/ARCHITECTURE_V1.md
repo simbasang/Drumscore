@@ -37,7 +37,7 @@ Projects, jobs, artifacts, analyses, score versions and the stage cache are pers
 Storage distinguishes source audio, stems, raw transcription diagnostics, analysis/score data and user edits.
 
 ## Observability
-Every job has a correlation ID across API/worker/processing logs. Structured events record stage start/end/duration/failure. Timing diagnostics can compare raw source timestamp, nearest beat/downbeat, quantized musical position and rendered event.
+Every job has a correlation ID across API/worker/processing logs. Structured events record stage start/end/duration/failure. Timing diagnostics can compare raw source timestamp, nearest beat/downbeat, quantized musical position and rendered event. Implemented in V1-033; see docs/OPERATIONS.md for the log format, event catalogue, limits and secret handling.
 
 ## Testing
 Unit: timing math, quantization, score transformations, engraving decisions, transport calculations.

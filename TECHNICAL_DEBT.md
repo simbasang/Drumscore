@@ -28,15 +28,14 @@ When you add, resolve or move an entry, update the index too.
 | Orphaned stage files | storage | deferred |
 | Unbounded score history | persistence | deferred |
 | No authentication | API | deferred |
-| Correlation IDs are stored but not yet propagated to logs | observability | deferred |
 | Pruner delete races stage-cache reuse | worker | deferred |
 | Pruner can leak files of projects deleted mid-prune/mid-job | worker | deferred |
-| `job.error` can contain absolute filesystem paths | API | deferred |
 | "← All projects" link drops unsaved score edits | frontend | deferred |
 | Retry backoff shows stale "in progress" label | frontend | deferred |
 | Worker that lost its lease can overwrite new owner's file | worker | deferred |
-| Engine subprocess output decoded with Windows code page | engines | deferred |
 | Epic 5's manual practice/correction test was never run | QA | deferred |
+| Admission limits are advisory under concurrent requests | API | deferred |
+| Import-time logging configuration leaks into caplog-based tests | tests | deferred |
 
 ---
 
@@ -516,26 +515,6 @@ production deployment reachable by more than one trusted party.
 
 ---
 
-## Correlation IDs are stored but not yet propagated to logs
-
-**Found in:** Epic 6 Slice A
-
-`jobs.correlation_id` is generated and stored on every job
-(`PostgresStore.create_project_with_job`), but nothing yet threads it into the
-worker's or API's log records, so a job's `correlation_id` can't currently be
-used to grep a single job's full log trail across the API and worker
-processes.
-
-**Fix would involve:** binding `correlation_id` into the logging context (e.g.
-a `logging.LoggerAdapter` or structured-logging `extra=`) for the duration of
-each job's processing in the worker, and logging it alongside the job ID on
-the API's own request-handling logs.
-
-**Deferred:** this is Slice B (#84) — observability/structured logging is a
-separate slice's scope, not Slice A's.
-
----
-
 ## Pruner delete races stage-cache reuse
 
 **Found in:** Epic 6 Slice A (pruner, `backend/app/worker/pruner.py`)
@@ -603,28 +582,6 @@ isn't mis-diagnosed.
 
 ---
 
-## `job.error` can contain absolute filesystem paths
-
-**Found in:** Epic 6 Slice A final review
-
-`_handle_failure` (`backend/app/pipeline/runner.py`) stores the engine's
-message as the job's `error`, and `GET /api/projects/{id}` returns it. Some
-engine messages carry absolute paths: Demucs's stderr
-(`StemSeparationError("Demucs failed: ...")`), the DrumScript runner-missing
-message, and the text of a `FileNotFoundError` or similar OS error wrapped as
-"Unexpected error: ...". That breaks the "the API never returns absolute
-filesystem paths" constraint.
-
-**Fix would involve:** sanitizing the message before it is stored or
-returned (replace `STORAGE_ROOT`, the staging directory and other absolute
-paths with relative keys or a placeholder, and cap the length), keeping the
-unsanitized text in the worker log for diagnostics.
-
-**Deferred:** the API is single-user and privately deployed in v1 (see "No
-authentication"); must be fixed before the API is exposed more widely.
-
----
-
 ## "← All projects" link drops unsaved score edits without a warning
 
 **Found in:** Epic 6 Slice A final review
@@ -687,34 +644,6 @@ engines on the same input, and a lease is only lost after a stall longer than
 
 ---
 
-## Engine subprocess output is decoded with the Windows code page
-
-**Found in:** Epic 6 Slice A manual restart-survival check (pre-existing since MVP-004)
-
-`DemucsStemSeparator.separate` (`backend/app/demucs_stem_separator.py`) and
-the DrumScript runner call (`backend/app/drumscript_transcriber.py`) run
-`subprocess.run(..., capture_output=True, text=True)` without an `encoding`,
-so on Windows the child's output is decoded with the locale code page
-(cp1252). Demucs's progress output contains bytes cp1252 cannot decode
-(e.g. `0x8d`), so `subprocess`'s reader thread dies with a
-`UnicodeDecodeError` traceback in the worker log on every separation. When
-the stage succeeds this is only noise, but the failed stream's captured
-value comes back as `None`: if Demucs exits non-zero, `result.stderr.strip()`
-raises `AttributeError`, the real Demucs error text is lost, and the job is
-classified as an unexpected (transient) error instead of a permanent
-`StemSeparationError`.
-
-**Fix would involve:** passing `encoding="utf-8", errors="replace"` to both
-engine `subprocess.run` calls (or sharing it via `detached_process_kwargs` in
-`backend/app/engine_process.py`), plus a test that feeds non-UTF-8/non-cp1252
-bytes through a fake engine's stderr and asserts the failure message
-survives.
-
-**Deferred:** successful runs are unaffected; only the diagnostics of a
-failing Demucs/DrumScript run are lost.
-
----
-
 ## Epic 5's manual practice/correction test was never run
 
 **Found in:** GitHub cleanup after PR #109 (2026-09-24)
@@ -740,3 +669,48 @@ filing issues for anything that fails.
 
 **Deferred:** do this before release, at the latest as part of V1-035
 (#86, v1.0 E2E, performance and release gate).
+
+---
+
+## Admission limits are advisory under concurrent requests
+
+**Found in:** V1-033 (#84)
+
+`_admit_new_job` (`backend/app/api/projects.py`) reads
+`Store.live_artifact_bytes()`/`Store.count_active_jobs()` and only then lets
+`POST /api/projects`/`POST /api/projects/{id}/retry` insert a new job, with
+no lock spanning the read and the write. Two requests that both read a
+count/usage just under the limit can both be admitted, so `MAX_ACTIVE_JOBS`
+and `STORAGE_MAX_BYTES` can briefly be overshot by the number of concurrent
+admitting requests.
+
+**Fix would involve:** a serializable transaction or an explicit lock (e.g.
+a Postgres advisory lock, or `SELECT ... FOR UPDATE` on a counter row)
+spanning the read-and-decide-and-insert sequence, so concurrent admissions
+serialize against each other.
+
+**Deferred:** overshoot is bounded by the number of concurrent requests, and
+v1 is a single-user, privately-deployed API (see "No authentication") where
+that number is small; revisit if concurrent submission volume grows.
+
+---
+
+## Import-time logging configuration leaks into caplog-based tests
+
+**Found in:** V1-033 (#84) Task 5
+
+`app/main.py` calls `configure_logging()` at import time, which sets the
+root logger's level globally for the process. Any caplog-based test whose
+own logging setup happens outside its `caplog.at_level` block, in a test
+session that has imported `app.main` (directly or transitively), can see
+log records leak in from that global root level. Task 5 worked around one
+instance of this with an explicit `caplog.set_level(logging.WARNING,
+logger="app.pipeline.runner")` in
+`test_reused_stages_log_a_cached_finish_without_a_start`.
+
+**Fix would involve:** either an autouse fixture that resets logger levels
+per test, or moving `configure_logging()` out of module import time and into
+the app factory/lifespan so importing `app.main` alone has no logging
+side effect.
+
+**Deferred:** test hygiene only; no production effect.

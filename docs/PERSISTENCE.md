@@ -193,6 +193,16 @@ multiple worker processes poll concurrently without blocking on each other.
   `attempts > max_attempts` at claim time (this can only happen when the previous
   attempt died without recording anything).
 
+## API admission limits
+
+`POST /api/projects` and `POST /api/projects/{id}/retry` both refuse to
+create/requeue work when the API is at its resource limits, checked in
+`_admit_new_job` (`app/api/projects.py`) before the write: `507` when
+`Store.live_artifact_bytes()` has reached `STORAGE_MAX_BYTES`, `503` (with
+`Retry-After: 60`) when `Store.count_active_jobs()` has reached
+`MAX_ACTIVE_JOBS`. See `docs/OPERATIONS.md#limits` for the full limits
+table, exact response bodies, and the advisory-under-concurrency caveat.
+
 ## 5. Failure policy
 
 Exceptions from `is_permanent()` (`backend/app/pipeline/errors.py`, `PERMANENT_ERRORS`)

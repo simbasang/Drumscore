@@ -46,11 +46,23 @@ class Harness:
         return project_id
 
 
-@pytest.fixture
-def harness(tmp_path):
-    store, storage, clock = InMemoryStore(), LocalArtifactStorage(tmp_path / "s"), FakeClock()
+def make_harness(store, tmp_path):
+    storage, clock = LocalArtifactStorage(tmp_path / "s"), FakeClock()
     override(store, storage, clock)
-    yield Harness(store, storage, clock)
+    return Harness(store, storage, clock)
+
+
+@pytest.fixture
+def harness(store, tmp_path):
+    """Runs each API test once per Store implementation (memory, postgres)."""
+    yield make_harness(store, tmp_path)
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def memory_harness(tmp_path):
+    """For the few tests that reach into or patch InMemoryStore itself."""
+    yield make_harness(InMemoryStore(), tmp_path)
     app.dependency_overrides.clear()
 
 
@@ -116,6 +128,29 @@ def test_get_project_and_404(harness):
     assert missing.status_code == 404
 
 
+@pytest.mark.parametrize(
+    "method, suffix",
+    [
+        ("GET", ""),
+        ("DELETE", ""),
+        ("POST", "/retry"),
+        ("GET", "/analysis"),
+        ("GET", "/diagnostics"),
+        ("GET", "/audio/drums"),
+        ("GET", "/score"),
+        ("PUT", "/score"),
+    ],
+)
+@pytest.mark.parametrize("project_id", ["abc", MISSING])
+def test_malformed_or_unknown_project_id_is_404(harness, method, suffix, project_id):
+    body = {"score": {"measures": []}} if method == "PUT" else None
+
+    response = harness.client.request(method, f"/api/projects/{project_id}{suffix}", json=body)
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Project not found"
+
+
 def test_delete_soft_deletes_and_hides_project(harness):
     project_id = harness.create().json()["project"]["id"]
 
@@ -174,12 +209,13 @@ def test_audio_409_before_ready_and_422_for_unknown_stem(harness):
     assert harness.client.get(f"/api/projects/{project_id}/audio/vocals").status_code == 422
 
 
-def test_audio_409_when_analysis_has_no_stem_artifact(harness):
-    project_id = harness.completed_project()
-    job = harness.store.latest_job(project_id)
-    harness.store._artifacts = {k: a for k, a in harness.store._artifacts.items() if a.job_id != job.id}
+def test_audio_409_when_analysis_has_no_stem_artifact(memory_harness):
+    project_id = memory_harness.completed_project()
+    job = memory_harness.store.latest_job(project_id)
+    store = memory_harness.store
+    store._artifacts = {k: a for k, a in store._artifacts.items() if a.job_id != job.id}
 
-    assert harness.client.get(f"/api/projects/{project_id}/audio/drums").status_code == 409
+    assert memory_harness.client.get(f"/api/projects/{project_id}/audio/drums").status_code == 409
 
 
 def test_audio_410_when_pruned(harness):
@@ -214,6 +250,17 @@ def test_retry_requeues_failed_job_only(harness):
     assert retried.status_code == 202
     assert retried.json()["status"] == "queued"
     assert retried.json()["attempts"] == 0
+
+
+def test_retry_is_409_when_the_job_stops_being_failed_before_the_requeue(memory_harness, monkeypatch):
+    project_id = memory_harness.create().json()["project"]["id"]
+    memory_harness.process_next(make_engines(extractor=FakeExtractor(error=AudioExtractionError("gone"))))
+    monkeypatch.setattr(memory_harness.store, "requeue_failed_job", lambda job_id, now: None)
+
+    response = memory_harness.client.post(f"/api/projects/{project_id}/retry")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Only a failed job can be retried; it was requeued or changed meanwhile"
 
 
 def test_score_lifecycle(harness):

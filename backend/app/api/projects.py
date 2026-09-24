@@ -1,4 +1,5 @@
 import logging
+import uuid
 from collections.abc import Callable
 from datetime import datetime
 from functools import lru_cache
@@ -67,9 +68,17 @@ def get_app_settings() -> Settings:  # pragma: no cover - production wiring, ove
 
 
 def _live_project(store: Store, project_id: str) -> Project:
-    project = store.get_project(project_id)
+    """Every project route resolves its id here. An id that is not a UUID
+    cannot name a project, so it is a 404 like any unknown id (and never
+    reaches the database's uuid column)."""
+    not_found = HTTPException(status_code=404, detail="Project not found")
+    try:
+        canonical_id = str(uuid.UUID(project_id))
+    except ValueError as error:
+        raise not_found from error
+    project = store.get_project(canonical_id)
     if project is None or project.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise not_found
     return project
 
 
@@ -132,8 +141,8 @@ def get_project(project_id: str, store: Store = Depends(get_store)) -> ProjectRe
 def delete_project(
     project_id: str, store: Store = Depends(get_store), clock: Callable[[], datetime] = Depends(get_clock)
 ) -> Response:
-    _live_project(store, project_id)
-    store.soft_delete_project(project_id, clock())
+    project = _live_project(store, project_id)
+    store.soft_delete_project(project.id, clock())
     return Response(status_code=204)
 
 
@@ -146,7 +155,14 @@ def retry_project(
     if job is None or job.status != JobStatus.FAILED:
         status = job.status.value if job else "unknown"
         raise HTTPException(status_code=409, detail=f"Only a failed job can be retried; current status is {status}")
-    return JobSummaryResponse.from_job(store.requeue_failed_job(job.id, clock()))
+    requeued = store.requeue_failed_job(job.id, clock())
+    if requeued is None:
+        # Another request requeued (or otherwise changed) the job between the
+        # status check above and the conditional requeue.
+        raise HTTPException(
+            status_code=409, detail="Only a failed job can be retried; it was requeued or changed meanwhile"
+        )
+    return JobSummaryResponse.from_job(requeued)
 
 
 @router.get("/{project_id}/analysis", response_model=AnalysisResponse)

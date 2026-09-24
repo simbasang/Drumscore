@@ -246,6 +246,27 @@ def test_release_lease_makes_job_claimable_immediately(store):
     assert store.claim_next_job("worker-b", LEASE, NOW + timedelta(seconds=1)).id == job.id
 
 
+def test_release_lease_refunds_the_attempt_its_claim_added(store):
+    _, job = create(store)
+    store.claim_next_job(OWNER, LEASE, NOW)
+    store.release_lease(job.id, OWNER, NOW)
+    store.claim_next_job(OWNER, LEASE, NOW)
+
+    store.release_lease(job.id, OWNER, NOW + timedelta(seconds=1))
+
+    assert store.get_job(job.id).attempts == 0
+    assert store.claim_next_job("worker-b", LEASE, NOW + timedelta(seconds=1)).attempts == 1
+
+
+def test_release_lease_by_non_owner_changes_nothing(store):
+    _, job = create(store)
+    claimed = store.claim_next_job(OWNER, LEASE, NOW)
+
+    store.release_lease(job.id, "intruder", NOW + timedelta(seconds=1))
+
+    assert store.get_job(job.id) == claimed
+
+
 def test_mutations_by_non_owner_raise_lease_lost(store):
     _, job = create(store)
     store.claim_next_job(OWNER, LEASE, NOW)

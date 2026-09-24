@@ -290,7 +290,13 @@ class PostgresStore:
             c.execute(
                 update(t.jobs)
                 .where(t.jobs.c.id == job_id, t.jobs.c.lease_owner == owner)
-                .values(lease_owner=None, lease_expires_at=None, available_at=now, updated_at=now)
+                .values(
+                    lease_owner=None,
+                    lease_expires_at=None,
+                    available_at=now,
+                    attempts=func.greatest(t.jobs.c.attempts - 1, 0),
+                    updated_at=now,
+                )
             )
 
     def set_job_status(self, job_id, owner, status, now):

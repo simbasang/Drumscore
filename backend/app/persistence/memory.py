@@ -163,7 +163,12 @@ class InMemoryStore:
             if job is None or job.lease_owner != owner:
                 return
             self._jobs[job_id] = dataclasses.replace(
-                job, lease_owner=None, lease_expires_at=None, available_at=now, updated_at=now
+                job,
+                lease_owner=None,
+                lease_expires_at=None,
+                available_at=now,
+                attempts=max(job.attempts - 1, 0),
+                updated_at=now,
             )
 
     def set_job_status(self, job_id, owner, status, now):

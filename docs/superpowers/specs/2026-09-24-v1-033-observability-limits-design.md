@@ -168,7 +168,9 @@ Demucs and DrumScript 600 s timeouts, yt-dlp 30 s socket timeout,
   root (`STORAGE_ROOT`, the system temp dir, the backend dir) with a
   placeholder (`<storage>`, `<tmp>`, `<app>`), then any remaining absolute
   Windows (`C:\…`) or POSIX (`/a/b…`, not part of a URL) path with `<path>`,
-  applies `redact`, and caps the result at 500 characters (`…` suffix).
+  applies `redact`, and caps the result at 500 characters by keeping the
+  first 200 and the last 299 characters joined by `…` (an engine's stderr
+  ends with the actual error, so the tail matters as much as the head).
   `runner._handle_failure` stores the sanitized message; the unsanitized one is
   logged. `JobContext` gets `error_roots: tuple[Path, ...]`.
 - Engine subprocesses: both `subprocess.run` calls pass

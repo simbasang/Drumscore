@@ -74,6 +74,26 @@ def test_every_request_logs_an_http_request_event(caplog):
     }
 
 
+def test_unhandled_exception_logs_unhandled_error_with_the_request_id(caplog):
+    app = context_app()
+
+    @app.get("/boom")
+    def boom():
+        raise RuntimeError("boom")
+
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with caplog.at_level(logging.INFO, logger="app.observability.http"):
+        response = client.get("/boom")
+
+    http_event = logged_events(caplog, "http_request")[0]
+    error_record = next(r for r in caplog.records if r.message == "unhandled_error")
+    assert response.status_code == 500
+    assert error_record.levelname == "ERROR"
+    assert error_record.context["request_id"] == http_event["request_id"]
+    assert error_record.exc_info is not None
+
+
 def size_limited_app(max_bytes):
     app = FastAPI()
 

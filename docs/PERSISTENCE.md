@@ -200,7 +200,7 @@ create/requeue work when the API is at its resource limits, checked in
 `_admit_new_job` (`app/api/projects.py`) before the write: `507` when
 `Store.live_artifact_bytes()` has reached `STORAGE_MAX_BYTES`, `503` (with
 `Retry-After: 60`) when `Store.count_active_jobs()` has reached
-`MAX_ACTIVE_JOBS`. See `docs/OPERATIONS.md#limits` for the full limits
+`MAX_ACTIVE_JOBS`. See `docs/OPERATIONS.md#4-limits` for the full limits
 table, exact response bodies, and the advisory-under-concurrency caveat.
 
 ## 5. Failure policy

@@ -115,7 +115,12 @@ can both be admitted — the queue or storage usage can briefly overshoot by
 the number of concurrent requests. `STORAGE_MAX_BYTES` counts **live
 artifact bytes**: `Store.live_artifact_bytes()` sums the size of distinct,
 un-pruned artifact storage keys, not temp/staging files under storage's
-`tmp/` directory.
+`tmp/` directory. Project deletion is soft: a deleted project's
+`live_artifact_bytes` contribution only drops once a worker's next prune
+run marks its artifacts pruned (up to `PRUNE_INTERVAL_SECONDS` later, and
+only if a worker is running), so the `507` response below can still occur
+for a short time after enough projects have been "deleted" to bring usage
+under the limit.
 
 | Limit | Value | Enforced where | Response / error text |
 |---|---|---|---|

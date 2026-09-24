@@ -182,6 +182,20 @@ def test_text_logging_survives_a_stream_encoding_that_cannot_represent_the_messa
     assert REPLACEMENT_CHARACTER.encode("cp1252", errors="backslashreplace").decode("cp1252") in line
     assert NON_LATIN_CHARACTER.encode("cp1252", errors="backslashreplace").decode("cp1252") in line
 
+def test_configure_logging_normalizes_a_lowercase_level():
+    stream = io.StringIO()
+    root = logging.getLogger()
+    before = list(root.handlers)
+    try:
+        configure_logging("info", "json", stream=stream)
+
+        assert root.level == logging.INFO
+    finally:
+        for handler in list(root.handlers):
+            if handler not in before:
+                root.removeHandler(handler)
+
+
 def test_configure_logging_installs_one_root_handler_and_routes_uvicorn_logs():
     stream = io.StringIO()
     root = logging.getLogger()

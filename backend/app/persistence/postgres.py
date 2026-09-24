@@ -10,6 +10,7 @@ from sqlalchemy.types import Text
 
 from app.persistence import tables as t
 from app.persistence.models import (
+    TERMINAL_STATUSES,
     Analysis,
     Artifact,
     ArtifactKind,
@@ -514,7 +515,7 @@ class PostgresStore:
             select(func.count())
             .select_from(t.jobs.join(t.projects, t.jobs.c.project_id == t.projects.c.id))
             .where(
-                t.jobs.c.status.not_in([JobStatus.COMPLETED.value, JobStatus.FAILED.value]),
+                t.jobs.c.status.not_in([status.value for status in TERMINAL_STATUSES]),
                 t.projects.c.deleted_at.is_(None),
             )
         )

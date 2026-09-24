@@ -56,6 +56,9 @@ class RequestContextMiddleware:
         with log_context(request_id=request_id):
             try:
                 await self.app(scope, receive, send_with_request_id)
+            except Exception:
+                logger.exception("unhandled_error")
+                raise
             finally:
                 log_event(
                     logger, "http_request",

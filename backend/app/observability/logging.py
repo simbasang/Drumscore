@@ -110,7 +110,7 @@ def configure_logging(level: str = "INFO", fmt: Literal["json", "text"] = "json"
     handler.setFormatter(JsonFormatter() if fmt == "json" else TextFormatter())
     handler.drumscore = True  # type: ignore[attr-defined]
     root.addHandler(handler)
-    root.setLevel(level)
+    root.setLevel(level.upper())
     for name in _UVICORN_LOGGERS:
         uvicorn_logger = logging.getLogger(name)
         uvicorn_logger.handlers.clear()

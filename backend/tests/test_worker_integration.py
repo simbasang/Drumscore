@@ -14,7 +14,7 @@ class SimulatedCrash(BaseException):
 
 
 def settings():
-    return Settings(_env_file=None, heartbeat_seconds=3600, poll_interval_seconds=0.01)
+    return Settings(_env_file=None, heartbeat_seconds=299, poll_interval_seconds=0.01)
 
 
 def enqueue(store, clock, video_id):

@@ -1,6 +1,11 @@
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from app.config import Settings
+
+BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 
 def test_settings_have_documented_defaults(monkeypatch):
@@ -33,3 +38,24 @@ def test_settings_read_environment_variables(monkeypatch, tmp_path):
     assert settings.database_url == "postgresql+psycopg://u:p@db:5432/x"
     assert settings.storage_root == tmp_path
     assert settings.worker_concurrency == 4
+
+
+def test_relative_storage_root_resolves_against_the_backend_directory(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("STORAGE_ROOT", "artifacts")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.storage_root == BACKEND_DIR / "artifacts"
+
+
+@pytest.mark.parametrize("heartbeat_seconds", [300, 301])
+def test_heartbeat_must_be_shorter_than_the_lease(heartbeat_seconds):
+    with pytest.raises(ValidationError, match="HEARTBEAT_SECONDS must be less than LEASE_SECONDS"):
+        Settings(_env_file=None, lease_seconds=300, heartbeat_seconds=heartbeat_seconds)
+
+
+def test_heartbeat_just_below_the_lease_is_accepted():
+    settings = Settings(_env_file=None, lease_seconds=300, heartbeat_seconds=299.5)
+
+    assert settings.heartbeat_seconds == 299.5

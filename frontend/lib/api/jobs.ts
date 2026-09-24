@@ -44,9 +44,18 @@ export interface AnalysisEvent {
   subdivision: number | null;
 }
 
+export interface Beat {
+  source_time: number;
+  measure: number;
+  beat: number;
+  is_downbeat: boolean;
+  confidence: number | null;
+}
+
 export interface Analysis {
   tempo_bpm: number;
   events: AnalysisEvent[];
+  beats: Beat[];
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {

@@ -16,6 +16,7 @@ class FakeGainNode {
 
 class FakeBufferSource {
   buffer: unknown = null;
+  playbackRate = { value: 1 };
   connect = jest.fn();
   start = jest.fn();
   stop = jest.fn();

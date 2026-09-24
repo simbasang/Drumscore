@@ -496,3 +496,90 @@ conventional beaming of note runs, not rest-spanning beams); revisit if
 real-groove testing shows the current unbeamed-around-rests rendering reads
 poorly for common drum patterns (e.g. eighth-note-rest-eighth-note
 snare/hi-hat figures).
+
+---
+
+## `insertHit`'s out-of-range-measure gap remains unreachable after Epic 5
+
+**Found in:** V1-027/#78 (Epic 5 correction editor) design
+
+The "`insertHit` cannot create a new measure" entry above was left deferred
+during V1-018/#51 because it wasn't reachable from any UI. Epic 5 adds the
+first real UI that calls `addHit`/`moveHit` (the manual correction editor),
+so this needed re-checking: the editor's position inputs (`Player.tsx`,
+V1-027/#78) are deliberately bounded to `1..score.measures.length` rather
+than free-form, so a user still cannot construct an out-of-range
+`position.measure`. The gap stays unreachable and therefore stays
+deferred - recorded here as a deliberate re-confirmation, not a new
+finding, so a future reader doesn't have to re-derive it when the next
+UI touches `addHit`/`moveHit`.
+
+**Deferred:** still not reachable from any UI as of Epic 5.
+
+---
+
+## No "accept"/"dismiss flag" affordance for low-confidence hits
+
+**Found in:** Epic 5 (V1-023..V1-028) final whole-branch review
+
+Issue #79 (V1-028)'s acceptance criteria describe an "accept/correct" flow
+for confidence-flagged hits. The correction editor built in this epic
+(`Player.tsx`) gives a user the tools to *correct* a flagged hit (move,
+delete, change instrument), but no way to *dismiss the flag without
+changing the hit* - `isLowConfidence` (`frontend/lib/score/confidence.ts`)
+has no corresponding "reviewed"/"accepted" state to set.
+
+The design spec's own proposed mechanism was to bump a hit's `confidence`
+value to clear the flag, which would fabricate a confidence number in
+violation of `CLAUDE.md`'s "never fabricate confidence values" rule, so it
+was not implemented. The reviewer's alternative - a new `reviewed`/
+`accepted` boolean field on `ScoreHit`, propagated through
+`useScoreEditor.ts`/`transformations.ts`/`buildStaveNote.ts` - is a real
+type change, not a small fix suitable for this epic's single, no-second-wave
+final fix round.
+
+Production confidence is null on every real job today (an Epic 3 finding),
+so the entire confidence-review UI is already dormant in practice; only the
+"dismiss without changing" affordance is missing, not correction itself.
+
+**Fix would involve:** adding a `reviewed: boolean` (or similar) field to
+`ScoreHit`, a `markReviewed`/`acceptHit` action in `useScoreEditor.ts`, and
+an "Accept" button in the correction editor next to already-flagged hits
+that suppresses `isLowConfidence`'s styling once set - without ever writing
+to `confidence` itself.
+
+**Deferred:** explicitly scoped out of Epic 5's PR; the existing move/
+delete/change-instrument tools remain sufficient to correct a flagged hit
+in the meantime. Revisit once a real transcription pipeline populates
+non-null confidence values (today, nothing exercises this UI outside a
+synthetic test fixture).
+
+---
+
+## `PracticeTransport.playWithCountIn()` has no re-entrancy guard
+
+**Found in:** Epic 5 (V1-023..V1-028) final review's scoped re-review
+
+`playWithCountIn()` stores its pending `setTimeout` handle in
+`countInTimeoutId` and `pause()` clears it, closing the bug where an
+in-flight count-in could fire `play()` after unmount closed the
+`AudioContext`. But `playWithCountIn()` itself has no guard against being
+called a second time before a first pending timer fires: a second call
+unconditionally overwrites `countInTimeoutId` without clearing the prior
+handle, so the first timer leaks and could still fire `play()` after a
+*later* `pause()` (which now only cancels the second, most recent handle).
+
+Not currently reachable: `Player.tsx`'s Count-in button is
+`disabled={isCountingIn || isPlaying}`, set synchronously the moment
+`handleCountInPlay` runs, and it's the sole call site of
+`playWithCountIn()` in the app - so no existing caller can trigger the
+double-call.
+
+**Fix would involve:** clearing any existing `countInTimeoutId` at the top
+of `playWithCountIn()` before scheduling a new one, the same defensive
+pattern `pause()` already uses.
+
+**Deferred:** parked by the final review's adjudication (single allowed fix
+wave already spent) since no live caller can reach it; revisit only if a
+future caller invokes `playWithCountIn()` without the existing UI-level
+guard.

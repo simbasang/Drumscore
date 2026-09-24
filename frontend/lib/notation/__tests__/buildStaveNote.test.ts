@@ -1,7 +1,7 @@
 import { Stem } from "vexflow";
 
 import type { ScoreHit } from "@/lib/score/types";
-import { buildStaveNote } from "../buildStaveNote";
+import { buildStaveNote, LOW_CONFIDENCE_STYLE, MANUAL_HIT_STYLE } from "../buildStaveNote";
 
 function hit(overrides: Partial<ScoreHit>): ScoreHit {
   return {
@@ -109,5 +109,60 @@ describe("buildStaveNote", () => {
     });
 
     expect(note.getKeys()).toEqual(["f/4"]);
+  });
+});
+
+describe("buildStaveNote manual/low-confidence styling", () => {
+  it("should apply the manual-hit style when a hit has no source event", () => {
+    const note = buildStaveNote({
+      type: "note",
+      id: "n",
+      position: { measure: 1, beat: 1, subdivision: 0 },
+      duration: "16",
+      hits: [hit({ sourceEventId: null })],
+    });
+
+    expect(note.getStyle()).toMatchObject(MANUAL_HIT_STYLE);
+  });
+
+  it("should apply the low-confidence style when a hit is below the confidence threshold", () => {
+    const note = buildStaveNote({
+      type: "note",
+      id: "n",
+      position: { measure: 1, beat: 1, subdivision: 0 },
+      duration: "16",
+      hits: [hit({ sourceEventId: "e", confidence: 0.1 })],
+    });
+
+    expect(note.getStyle()).toMatchObject(LOW_CONFIDENCE_STYLE);
+  });
+
+  it("should apply no style override for an ordinary transcribed hit", () => {
+    const note = buildStaveNote({
+      type: "note",
+      id: "n",
+      position: { measure: 1, beat: 1, subdivision: 0 },
+      duration: "16",
+      hits: [hit({ sourceEventId: "e", confidence: 0.9 })],
+    });
+
+    // VexFlow's Element base class always initializes `style` from
+    // Metrics.getStyle(category) (see node_modules/vexflow Element
+    // constructor), so an untouched StaveNote's getStyle() is `{}`, not
+    // `undefined` - there is no VexFlow-level default style registered
+    // for the "StaveNote" category.
+    expect(note.getStyle()).toEqual({});
+  });
+
+  it("should prefer the manual style over the low-confidence style when a note has both", () => {
+    const note = buildStaveNote({
+      type: "note",
+      id: "n",
+      position: { measure: 1, beat: 1, subdivision: 0 },
+      duration: "16",
+      hits: [hit({ id: "h1", sourceEventId: null }), hit({ id: "h2", sourceEventId: "e", confidence: 0.1 })],
+    });
+
+    expect(note.getStyle()).toMatchObject(MANUAL_HIT_STYLE);
   });
 });

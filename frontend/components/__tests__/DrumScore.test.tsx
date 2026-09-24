@@ -1,6 +1,7 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
 import type { AnalysisEvent } from "@/lib/api/jobs";
+import { fromAnalysisEvents } from "@/lib/score/buildScore";
 import DrumScore from "../DrumScore";
 
 function installFakeResizeObserver() {
@@ -46,16 +47,20 @@ function event(overrides: Partial<AnalysisEvent>): AnalysisEvent {
   };
 }
 
+function buildScore(events: AnalysisEvent[]) {
+  return fromAnalysisEvents(events);
+}
+
 describe("DrumScore", () => {
   it("should render an SVG score without throwing for a simple beat", () => {
     render(
       <DrumScore
-        events={[
+        score={buildScore([
           event({ id: "1", instrument: "kick", beat: 1, subdivision: 0, time: 0 }),
           event({ id: "2", instrument: "hihat_closed", beat: 1, subdivision: 0, time: 0 }),
           event({ id: "3", instrument: "snare", beat: 2, subdivision: 0, time: 0.5 }),
           event({ id: "4", instrument: "hihat_open", beat: 3, subdivision: 2, time: 1.25 }),
-        ]}
+        ])}
       />,
     );
 
@@ -66,16 +71,16 @@ describe("DrumScore", () => {
     expect(container.querySelectorAll(".vf-stavenote").length).toBeGreaterThan(0);
   });
 
-  it("should render nothing extra for an empty event list", () => {
-    render(<DrumScore events={[]} />);
+  it("should render nothing extra for an empty score", () => {
+    render(<DrumScore score={buildScore([])} />);
 
     const container = screen.getByTestId("drum-score");
 
     expect(container.querySelector("svg")).toBeNull();
   });
 
-  it("should not throw when given a currentTime but no events to build a score from", () => {
-    render(<DrumScore events={[]} currentTime={5} />);
+  it("should not throw when given a currentTime but an empty score", () => {
+    render(<DrumScore score={buildScore([])} currentTime={5} />);
 
     const container = screen.getByTestId("drum-score");
 
@@ -85,10 +90,10 @@ describe("DrumScore", () => {
   it("should force every note's stem upward, including kick and snare", () => {
     render(
       <DrumScore
-        events={[
+        score={buildScore([
           event({ id: "1", instrument: "kick", beat: 1, subdivision: 0, time: 0 }),
           event({ id: "2", instrument: "snare", beat: 2, subdivision: 0, time: 0.5 }),
-        ]}
+        ])}
       />,
     );
 
@@ -99,7 +104,7 @@ describe("DrumScore", () => {
   });
 
   it("should not draw a playhead line when currentTime is not provided", () => {
-    render(<DrumScore events={[event({ id: "1", beat: 1, subdivision: 0, time: 0 })]} />);
+    render(<DrumScore score={buildScore([event({ id: "1", beat: 1, subdivision: 0, time: 0 })])} />);
 
     const container = screen.getByTestId("drum-score");
 
@@ -107,21 +112,19 @@ describe("DrumScore", () => {
   });
 
   it("should draw a playhead line positioned at the current time, driven by each event's own source time", () => {
-    const events = [
+    const score = buildScore([
       event({ id: "1", beat: 1, subdivision: 0, time: 0 }),
       event({ id: "2", beat: 3, subdivision: 0, time: 7.3 }),
-    ];
+    ]);
 
-    const { rerender } = render(<DrumScore currentTime={0} events={events} />);
+    const { rerender } = render(<DrumScore currentTime={0} score={score} />);
 
     const container = screen.getByTestId("drum-score");
     const lineAtStart = container.querySelector("#drum-score-playhead");
     expect(lineAtStart).not.toBeNull();
     const xAtStart = Number(lineAtStart?.getAttribute("x1"));
 
-    // 7.3s is event 2's own real source time, not anything computeSlotTimeSeconds
-    // would derive from a BPM - this is what "source-linked" means here.
-    rerender(<DrumScore currentTime={7.3} events={events} />);
+    rerender(<DrumScore currentTime={7.3} score={score} />);
 
     const lineLater = container.querySelector("#drum-score-playhead");
     const xLater = Number(lineLater?.getAttribute("x1"));
@@ -130,33 +133,22 @@ describe("DrumScore", () => {
   });
 
   it("should auto-scroll the container horizontally to keep the playhead in view", () => {
-    // Adaptive layout sizes rows from the container's real clientWidth at
-    // mount, so it must be mocked wide (as a real browser's would be) before
-    // rendering - a narrow-container layout would place measure 4 close
-    // enough to x=0 that no scroll would be needed at all.
-    // jsdom defines clientWidth on Element.prototype, not HTMLElement.prototype
-    // - getOwnPropertyDescriptor on HTMLElement.prototype would find nothing
-    // to restore, permanently leaking this mock into every later test in the
-    // file. Mock (and restore) it where it's actually defined.
     const originalDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth");
     Object.defineProperty(Element.prototype, "clientWidth", { value: 2000, configurable: true });
 
     try {
-      const events = [
+      const score = buildScore([
         event({ id: "1", measure: 1, beat: 1, subdivision: 0, time: 0 }),
         event({ id: "2", measure: 4, beat: 4, subdivision: 3, time: 8 }),
-      ];
+      ]);
 
-      const { rerender } = render(<DrumScore currentTime={0} events={events} />);
+      const { rerender } = render(<DrumScore currentTime={0} score={score} />);
 
       const container = screen.getByTestId("drum-score");
-      // Narrows just the container's own clientWidth for the auto-scroll
-      // viewport calculation itself (read live on every currentTime update),
-      // independent of the wide mount-time layout width above.
       Object.defineProperty(container, "clientWidth", { value: 200, configurable: true });
       container.scrollLeft = 0;
 
-      rerender(<DrumScore currentTime={8} events={events} />);
+      rerender(<DrumScore currentTime={8} score={score} />);
 
       expect(container.scrollLeft).toBeGreaterThan(0);
     } finally {
@@ -169,17 +161,14 @@ describe("DrumScore", () => {
   });
 
   it("should never move the playhead backward in x while stepping through a real multi-row score", () => {
-    // With no container width mocked, jsdom's clientWidth stays 0, so adaptive
-    // layout's greedy packer places every measure on its own row - measure 5
-    // still lands on a different row than measure 4, just not row 1 anymore.
     const lastRowZeroTime = 3.95;
     const firstRowOneTime = 4.2;
-    const events = [
+    const score = buildScore([
       event({ id: "1", measure: 4, beat: 4, subdivision: 3, instrument: "kick", time: lastRowZeroTime }),
       event({ id: "2", measure: 5, beat: 1, subdivision: 0, instrument: "snare", time: firstRowOneTime }),
-    ];
+    ]);
 
-    const { rerender } = render(<DrumScore currentTime={0} events={events} />);
+    const { rerender } = render(<DrumScore currentTime={0} score={score} />);
     const container = screen.getByTestId("drum-score");
 
     const sampleTimes = [
@@ -192,7 +181,7 @@ describe("DrumScore", () => {
     let previousX: number | null = null;
     let previousY: number | null = null;
     for (const time of sampleTimes) {
-      rerender(<DrumScore currentTime={time} events={events} />);
+      rerender(<DrumScore currentTime={time} score={score} />);
       const line = container.querySelector("#drum-score-playhead")!;
       const x = Number(line.getAttribute("x1"));
       const y = Number(line.getAttribute("y1"));
@@ -204,17 +193,16 @@ describe("DrumScore", () => {
       previousY = y;
     }
 
-    // Sanity check the boundary was actually exercised across two rows.
-    rerender(<DrumScore currentTime={lastRowZeroTime} events={events} />);
+    rerender(<DrumScore currentTime={lastRowZeroTime} score={score} />);
     const yBeforeBoundary = container.querySelector("#drum-score-playhead")!.getAttribute("y1");
-    rerender(<DrumScore currentTime={firstRowOneTime} events={events} />);
+    rerender(<DrumScore currentTime={firstRowOneTime} score={score} />);
     const yAfterBoundary = container.querySelector("#drum-score-playhead")!.getAttribute("y1");
     expect(yAfterBoundary).not.toBe(yBeforeBoundary);
   });
 
   it("should not require a tempoBpm prop", () => {
-    // @ts-expect-error tempoBpm is no longer part of DrumScoreProps
-    render(<DrumScore events={[]} tempoBpm={120} />);
+    // @ts-expect-error tempoBpm is not part of DrumScoreProps
+    render(<DrumScore score={buildScore([])} tempoBpm={120} />);
 
     expect(screen.getByTestId("drum-score")).toBeInTheDocument();
   });
@@ -222,41 +210,30 @@ describe("DrumScore", () => {
   it("should render a separate beam per beat for a straight eighth-note groove, not one beam per measure", () => {
     render(
       <DrumScore
-        events={[
+        score={buildScore([
           event({ id: "1", instrument: "hihat_closed", beat: 1, subdivision: 0, time: 0 }),
           event({ id: "2", instrument: "hihat_closed", beat: 1, subdivision: 2, time: 0.25 }),
           event({ id: "3", instrument: "hihat_closed", beat: 2, subdivision: 0, time: 0.5 }),
           event({ id: "4", instrument: "hihat_closed", beat: 2, subdivision: 2, time: 0.75 }),
-        ]}
+        ])}
       />,
     );
 
     const container = screen.getByTestId("drum-score");
-    // VexFlow 5 puts the "vf-beam" class on the wrapping <g> for each beam
-    // group (the inner connecting <path> is unclassed), so querying on the
-    // group element is what actually counts distinct beams.
     const beamGroups = container.querySelectorAll("g.vf-beam");
 
     expect(beamGroups.length).toBe(2);
   });
 
   it("should draw exactly one stem per beamed note, not a duplicate unbeamed stem underneath the beam", () => {
-    // Regression test for building Beams AFTER Formatter/voice.draw(): VexFlow's
-    // Beam constructor calls note.setBeam(this), and StaveNote only skips
-    // drawing its own (un-extended) stem when that beam reference is already
-    // set at draw time (see StaveNote.draw(): shouldRenderStem = hasStem() &&
-    // !this.beam). Building beams too late left every beamed note with two
-    // .vf-stem elements - its own short stem plus the beam's extended one.
-    // Verified empirically: with the buggy call order this count is 8 (2 per
-    // note x 4 notes); with beams built before Formatter/draw it is 4.
     render(
       <DrumScore
-        events={[
+        score={buildScore([
           event({ id: "1", instrument: "hihat_closed", beat: 1, subdivision: 0, time: 0 }),
           event({ id: "2", instrument: "hihat_closed", beat: 1, subdivision: 2, time: 0.25 }),
           event({ id: "3", instrument: "hihat_closed", beat: 2, subdivision: 0, time: 0.5 }),
           event({ id: "4", instrument: "hihat_closed", beat: 2, subdivision: 2, time: 0.75 }),
-        ]}
+        ])}
       />,
     );
 
@@ -269,11 +246,11 @@ describe("DrumScore", () => {
   it("should reflow into more rows (a taller score) when the container becomes narrower after a resize", () => {
     const fakeResizeObserver = installFakeResizeObserver();
     try {
-      const events = Array.from({ length: 8 }, (_, i) =>
-        event({ id: String(i), measure: i + 1, beat: 1, subdivision: 0, time: i }),
+      const score = buildScore(
+        Array.from({ length: 8 }, (_, i) => event({ id: String(i), measure: i + 1, beat: 1, subdivision: 0, time: i })),
       );
 
-      render(<DrumScore events={events} />);
+      render(<DrumScore score={score} />);
       const container = screen.getByTestId("drum-score");
 
       act(() => {
@@ -293,18 +270,118 @@ describe("DrumScore", () => {
   });
 
   it("should not rebuild the score when only currentTime changes, keeping row breaks stable during playback", () => {
-    const events = [
+    const score = buildScore([
       event({ id: "1", measure: 1, beat: 1, subdivision: 0, time: 0 }),
       event({ id: "2", measure: 2, beat: 1, subdivision: 0, time: 1 }),
-    ];
+    ]);
 
-    const { rerender } = render(<DrumScore currentTime={0} events={events} />);
+    const { rerender } = render(<DrumScore currentTime={0} score={score} />);
     const container = screen.getByTestId("drum-score");
     const svgBefore = container.querySelector("svg");
 
-    rerender(<DrumScore currentTime={0.5} events={events} />);
+    rerender(<DrumScore currentTime={0.5} score={score} />);
     const svgAfter = container.querySelector("svg");
 
     expect(svgAfter).toBe(svgBefore);
+  });
+
+  it("should keep the playhead visible after an edit changes the score while paused (currentTime unchanged)", () => {
+    const firstScore = buildScore([
+      event({ id: "1", instrument: "kick", beat: 1, subdivision: 0, time: 0 }),
+      event({ id: "2", instrument: "snare", beat: 3, subdivision: 0, time: 1 }),
+    ]);
+    const secondScore = buildScore([
+      event({ id: "1", instrument: "kick", beat: 1, subdivision: 0, time: 0 }),
+      event({ id: "2", instrument: "hihat_open", beat: 3, subdivision: 0, time: 1 }),
+    ]);
+
+    const { rerender } = render(<DrumScore currentTime={0.5} score={firstScore} />);
+    const container = screen.getByTestId("drum-score");
+    expect(container.querySelector("#drum-score-playhead")).not.toBeNull();
+
+    // Only the score prop changes here - currentTime is held fixed, as it
+    // would be while playback is paused and the user makes a correction.
+    // The layout effect wipes container.innerHTML and rebuilds it, which
+    // previously left the playhead line gone until currentTime next
+    // changed (i.e. until playback resumed).
+    rerender(<DrumScore currentTime={0.5} score={secondScore} />);
+
+    expect(container.querySelector("#drum-score-playhead")).not.toBeNull();
+  });
+
+  it("should keep the timeline sorted by time so a hit that keeps an earlier source time at a later layout position doesn't snap the playhead to the wrong note", () => {
+    // Mirrors what moveHit produces: a hit's source time is immutable, but
+    // its musical/layout position can change independently of it. Here
+    // hit "1" sits early in the measure (beat 1) but carries a LATER
+    // source time than hit "2", which sits later in the measure (beat 4)
+    // but carries an EARLIER source time - layout/array order (beat 1
+    // pushed before beat 4) is therefore the reverse of time order.
+    const invertedScore = buildScore([
+      event({ id: "1", instrument: "kick", beat: 1, subdivision: 0, time: 3 }),
+      event({ id: "2", instrument: "snare", beat: 4, subdivision: 0, time: 0 }),
+    ]);
+    // A control score with the same layout positions, but with time values
+    // that agree with layout order - so its x coordinates are a reliable,
+    // bug-agnostic reference for "beat 1 note's x" / "beat 4 note's x"
+    // (x depends only on layout position, never on hit.time).
+    const controlScore = buildScore([
+      event({ id: "1", instrument: "kick", beat: 1, subdivision: 0, time: 0 }),
+      event({ id: "2", instrument: "snare", beat: 4, subdivision: 0, time: 3 }),
+    ]);
+
+    const control = render(<DrumScore currentTime={-100} score={controlScore} />);
+    const controlContainer = within(control.container).getByTestId("drum-score");
+    const beat1X = Number(controlContainer.querySelector("#drum-score-playhead")!.getAttribute("x1"));
+    control.rerender(<DrumScore currentTime={1000} score={controlScore} />);
+    const beat4X = Number(controlContainer.querySelector("#drum-score-playhead")!.getAttribute("x1"));
+    expect(beat4X).toBeGreaterThan(beat1X);
+
+    const inverted = render(<DrumScore currentTime={-100} score={invertedScore} />);
+    const invertedContainer = within(inverted.container).getByTestId("drum-score");
+    // Before the earliest real anchor's time (hit "2", time 0): the
+    // correct clamp is to the anchor with the smallest source time, i.e.
+    // hit "2" (beat 4's x) - not to whichever point the unsorted layout
+    // array happened to push first (hit "1", beat 1's x).
+    const xBeforeEarliest = Number(invertedContainer.querySelector("#drum-score-playhead")!.getAttribute("x1"));
+    expect(xBeforeEarliest).toBe(beat4X);
+
+    // Past the latest real anchor's time (hit "1", time 3): the correct
+    // clamp is to hit "1" (beat 1's x) - not the last-pushed layout point.
+    inverted.rerender(<DrumScore currentTime={3.5} score={invertedScore} />);
+    const xPastLatest = Number(invertedContainer.querySelector("#drum-score-playhead")!.getAttribute("x1"));
+    expect(xPastLatest).toBe(beat1X);
+    expect(xPastLatest).not.toBe(beat4X);
+  });
+
+  it("should call onSeek with a note's source time when it is clicked", () => {
+    const onSeek = jest.fn();
+    const score = buildScore([event({ id: "1", instrument: "kick", beat: 1, subdivision: 0, time: 3.5 })]);
+
+    render(<DrumScore score={score} onSeek={onSeek} />);
+
+    const container = screen.getByTestId("drum-score");
+    const note = container.querySelector(".vf-stavenote")!;
+    fireEvent.click(note);
+
+    expect(onSeek).toHaveBeenCalledWith(3.5);
+  });
+
+  it("should not call onSeek when a rest slot is clicked", () => {
+    const onSeek = jest.fn();
+    // A single hit placed mid-measure (beat 2), rather than at beat 1,
+    // so the note's duration-extension (see consolidateDurations /
+    // V1-018 in lib/score/grid.ts) can't absorb the whole rest of the
+    // measure into the note itself - it stops at the next valid aligned
+    // duration boundary, leaving a real trailing rest slot to click.
+    const score = buildScore([event({ id: "1", instrument: "kick", beat: 2, subdivision: 0, time: 1 })]);
+
+    render(<DrumScore score={score} onSeek={onSeek} />);
+
+    const container = screen.getByTestId("drum-score");
+    const staveNotes = container.querySelectorAll(".vf-stavenote");
+    const lastRest = staveNotes[staveNotes.length - 1];
+    fireEvent.click(lastRest);
+
+    expect(onSeek).not.toHaveBeenCalled();
   });
 });

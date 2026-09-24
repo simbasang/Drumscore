@@ -8,9 +8,10 @@ describe("DrumScore golden fixtures", () => {
   it.each(GROOVE_FIXTURES.map((fixture) => [fixture.name, fixture] as const))(
     "should render %s as an SVG score with one stave-note element per slot (note or rest)",
     (_name, fixture) => {
-      const expectedSlotCount = fromAnalysisEvents(fixture.events).measures.flat().length;
+      const score = fromAnalysisEvents(fixture.events);
+      const expectedSlotCount = score.measures.flat().length;
 
-      render(<DrumScore events={fixture.events} />);
+      render(<DrumScore score={score} />);
 
       const container = screen.getByTestId("drum-score");
       const svg = container.querySelector("svg");

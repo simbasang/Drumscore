@@ -309,6 +309,7 @@ class DrumEventResponse(BaseModel):
 class AnalysisResponse(BaseModel):
     tempo_bpm: float
     events: list[DrumEventResponse]
+    beats: list[BeatPointResponse] = []
 
 
 @router.get("/{job_id}/analysis", response_model=AnalysisResponse)
@@ -327,6 +328,7 @@ def get_job_analysis(job_id: str, store: JobStore = Depends(get_job_store)) -> A
     return AnalysisResponse(
         tempo_bpm=job.tempo_bpm,
         events=[DrumEventResponse.from_event(event) for event in job.events],
+        beats=[BeatPointResponse.from_domain(beat) for beat in (job.beats or [])],
     )
 
 

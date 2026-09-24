@@ -7,6 +7,7 @@ class FakeGainNode {
 
 class FakeBufferSource {
   buffer: unknown = null;
+  playbackRate = { value: 1 };
   connect = jest.fn();
   start = jest.fn();
   stop = jest.fn();
@@ -188,5 +189,76 @@ describe("SyncedPlayer", () => {
 
     expect(player.getCurrentTime()).toBe(4);
     expect(context.createBufferSource).toHaveBeenCalledTimes(2);
+  });
+
+  it("should default to playback rate 1", () => {
+    const player = new SyncedPlayer(context, makeBuffer(10), makeBuffer(10));
+
+    expect(player.getPlaybackRate()).toBe(1);
+  });
+
+  it("should apply the playback rate to both stems when starting playback", () => {
+    const player = new SyncedPlayer(context, makeBuffer(10), makeBuffer(10));
+    player.setPlaybackRate(1.5);
+
+    player.play();
+
+    const sources = context.createBufferSource.mock.results.map((r) => r.value as FakeBufferSource);
+    sources.forEach((source) => expect(source.playbackRate.value).toBe(1.5));
+  });
+
+  it("should scale elapsed context time by the playback rate when reporting current time", () => {
+    const player = new SyncedPlayer(context, makeBuffer(10), makeBuffer(10));
+    player.setPlaybackRate(2);
+    context.currentTime = 0;
+    player.play();
+
+    context.currentTime = 3;
+
+    expect(player.getCurrentTime()).toBe(6);
+  });
+
+  it("should rebase offset and restart both stems at the current position when changing rate mid-playback", () => {
+    const player = new SyncedPlayer(context, makeBuffer(10), makeBuffer(10));
+    context.currentTime = 0;
+    player.play();
+    context.currentTime = 2;
+
+    player.setPlaybackRate(2);
+
+    const allSources = context.createBufferSource.mock.results.map((r) => r.value as FakeBufferSource);
+    const newSources = allSources.slice(2);
+    expect(newSources).toHaveLength(2);
+    newSources.forEach((source) => {
+      expect(source.start).toHaveBeenCalledWith(0, 2);
+      expect(source.playbackRate.value).toBe(2);
+    });
+
+    context.currentTime = 3;
+    expect(player.getCurrentTime()).toBe(4);
+  });
+
+  it("should change rate while paused without starting playback", () => {
+    const player = new SyncedPlayer(context, makeBuffer(10), makeBuffer(10));
+
+    player.setPlaybackRate(0.5);
+
+    expect(player.getPlaybackRate()).toBe(0.5);
+    expect(context.createBufferSource).not.toHaveBeenCalled();
+  });
+
+  it("should not restart sources when playback already ended before a rate change", () => {
+    const player = new SyncedPlayer(context, makeBuffer(10), makeBuffer(10));
+    context.currentTime = 0;
+    player.play();
+    context.currentTime = 15;
+    player.getCurrentTime();
+    context.createBufferSource.mockClear();
+
+    player.setPlaybackRate(2);
+
+    expect(context.createBufferSource).not.toHaveBeenCalled();
+    expect(player.isPlaying).toBe(false);
+    expect(player.getCurrentTime()).toBe(10);
   });
 });

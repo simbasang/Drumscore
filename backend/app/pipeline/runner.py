@@ -7,6 +7,7 @@ from pathlib import Path
 from app.audio_extraction import AudioExtractor
 from app.beat_detection import BeatDetector
 from app.media_source import MediaSourceValidator
+from app.observability.redaction import sanitize_error_message
 from app.persistence.models import (
     Artifact,
     ArtifactKind,
@@ -60,6 +61,7 @@ class JobContext:
     retry_base_seconds: int
     clock: Callable[[], datetime]
     should_stop: Callable[[], bool] = field(default=lambda: False)
+    error_roots: tuple[tuple[Path, str], ...] = ()
 
 
 class JobAbandoned(Exception):
@@ -97,10 +99,10 @@ def _handle_failure(job: Job, ctx: JobContext, error: Exception) -> None:
     now = ctx.clock()
     if is_permanent(error):
         logger.info("Job %s failed permanently: %s", job.id, error)
-        ctx.store.fail_job(job.id, ctx.owner, str(error), now)
+        ctx.store.fail_job(job.id, ctx.owner, sanitize_error_message(str(error), ctx.error_roots), now)
         return
 
-    message = f"Unexpected error: {error}"
+    message = sanitize_error_message(f"Unexpected error: {error}", ctx.error_roots)
     logger.exception("Job %s crashed on attempt %d/%d", job.id, job.attempts, job.max_attempts)
     if job.attempts >= job.max_attempts:
         ctx.store.fail_job(job.id, ctx.owner, message, now)

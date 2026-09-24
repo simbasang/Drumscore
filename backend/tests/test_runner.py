@@ -312,3 +312,23 @@ def test_lost_lease_propagates_and_commits_nothing(store, storage, clock):
 
     assert store.artifacts_for_job(job.id) == {}
     assert store.get_job(job.id).lease_owner == "thief"
+
+
+def test_stored_job_error_is_sanitized_but_the_log_keeps_the_raw_text(store, storage, clock, caplog, tmp_path):
+    new_project(store, clock)
+    leaked = tmp_path / "secret" / "source.wav"
+    engines = make_engines(separator=FakeSeparator(error=StemSeparationError(f"Demucs failed: cannot read {leaked}")))
+    job = store.claim_next_job(OWNER, 300, clock())
+    ctx = JobContext(
+        store=store, storage=storage, engines=engines, owner=OWNER, retry_base_seconds=30, clock=clock,
+        error_roots=((tmp_path, "<storage>"),),
+    )
+
+    with caplog.at_level(logging.INFO, logger="app.pipeline.runner"):
+        process_job(job, ctx)
+
+    stored = store.get_job(job.id).error
+    assert stored.startswith("Demucs failed: cannot read <storage>")
+    assert stored.endswith("source.wav")
+    assert str(tmp_path) not in stored
+    assert str(leaked) in caplog.text

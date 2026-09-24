@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 from app.clock import utc_now
 from app.config import Settings
+from app.observability.redaction import default_error_roots
 from app.persistence.models import LeaseLostError
 from app.persistence.store import Store
 from app.pipeline.runner import JobAbandoned, JobContext, PipelineEngines, process_job
@@ -48,6 +49,7 @@ class Worker:
         self._jitter = jitter
         self._stop = threading.Event()
         self._next_prune_at: datetime | None = None
+        self._error_roots = default_error_roots(settings.storage_root)
 
     def stop(self) -> None:
         self._stop.set()
@@ -75,6 +77,7 @@ class Worker:
                 retry_base_seconds=self.settings.retry_base_seconds,
                 clock=self._clock,
                 should_stop=lambda: self._stop.is_set() or heartbeat.lost,
+                error_roots=self._error_roots,
             )
             try:
                 process_job(job, context)

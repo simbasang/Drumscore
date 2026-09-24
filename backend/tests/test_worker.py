@@ -259,3 +259,14 @@ def test_run_forever_survives_a_transient_store_error_and_keeps_running(parts, c
     assert store.get_job(job.id).status == JobStatus.COMPLETED
     assert not thread.is_alive()
     assert "db blip" in caplog.text or "ConnectionError" in caplog.text
+
+
+def test_worker_stores_errors_without_its_storage_root(parts):
+    store, storage, clock = parts
+    _, job = enqueue(store, clock)
+    failing = FakeSeparator(error=StemSeparationError(f"Demucs failed: {storage.root / 'x.wav'}"))
+    worker = make_worker(store, storage, clock, make_engines(separator=failing), storage_root=storage.root)
+
+    worker.run_once()
+
+    assert str(storage.root) not in store.get_job(job.id).error

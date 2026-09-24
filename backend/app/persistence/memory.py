@@ -308,6 +308,21 @@ class InMemoryStore:
             self._touch_project(project_id, now)
             return saved
 
+    # --- admission ----------------------------------------------------------
+    def count_active_jobs(self):
+        with self._lock:
+            return sum(
+                1
+                for job in self._jobs.values()
+                if job.status not in (JobStatus.COMPLETED, JobStatus.FAILED)
+                and self._projects[job.project_id].deleted_at is None
+            )
+
+    def live_artifact_bytes(self):
+        with self._lock:
+            sizes = {a.storage_key: a.size_bytes for a in self._artifacts.values() if a.pruned_at is None}
+            return sum(sizes.values())
+
     # --- lifecycle ----------------------------------------------------------
     def _row_is_disposable(self, artifact: Artifact, failed_before: datetime) -> bool:
         project = self._projects[artifact.project_id]

@@ -72,6 +72,17 @@ _DISPOSABLE_SQL = text(
     """
 )
 
+_LIVE_BYTES_SQL = text(
+    """
+    SELECT COALESCE(SUM(size_bytes), 0) FROM (
+        SELECT DISTINCT ON (storage_key) size_bytes
+        FROM artifacts
+        WHERE pruned_at IS NULL
+        ORDER BY storage_key
+    ) AS live
+    """
+)
+
 _DROP_CACHE_SQL = text(
     """
     DELETE FROM stage_cache
@@ -496,6 +507,23 @@ class PostgresStore:
             c.execute(update(t.projects).where(t.projects.c.id == project_id).values(updated_at=now))
             row = c.execute(select(t.score_versions).where(t.score_versions.c.id == score_id)).one()
         return _score(row)
+
+    # --- admission ----------------------------------------------------------
+    def count_active_jobs(self):
+        query = (
+            select(func.count())
+            .select_from(t.jobs.join(t.projects, t.jobs.c.project_id == t.projects.c.id))
+            .where(
+                t.jobs.c.status.not_in([JobStatus.COMPLETED.value, JobStatus.FAILED.value]),
+                t.projects.c.deleted_at.is_(None),
+            )
+        )
+        with self.engine.connect() as c:
+            return c.execute(query).scalar_one()
+
+    def live_artifact_bytes(self):
+        with self.engine.connect() as c:
+            return int(c.execute(_LIVE_BYTES_SQL).scalar_one())
 
     # --- lifecycle ----------------------------------------------------------
     def disposable_storage_keys(self, failed_before):

@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from app import main
+from app.api.projects import router as projects_router
 from app.observability.http import RequestContextMiddleware, RequestSizeLimitMiddleware
 from app.observability.logging import current_context
 from tests.fakes import FakeMonotonic, logged_events
@@ -131,6 +132,28 @@ def test_streamed_body_without_content_length_is_cut_off_at_the_limit():
 
     assert sent[0]["status"] == 413
     assert len(received) == 1
+
+
+def real_router_app(max_bytes):
+    app = FastAPI()
+    app.include_router(projects_router)
+    app.add_middleware(RequestSizeLimitMiddleware, max_bytes=max_bytes)
+    app.add_middleware(RequestContextMiddleware)
+    return app
+
+
+def test_streamed_oversized_body_through_real_routing_is_rejected_with_413():
+    client = TestClient(real_router_app(max_bytes=10))
+
+    def chunks():
+        yield b'{"url": "'
+        yield b"x" * 20
+        yield b'"}'
+
+    response = client.post("/api/projects", content=chunks())
+
+    assert response.status_code == 413
+    assert response.json() == {"detail": "Request body is larger than the 10-byte limit"}
 
 
 def test_main_app_installs_both_middlewares():

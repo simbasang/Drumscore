@@ -10,6 +10,8 @@ import uuid
 from collections.abc import Callable
 from typing import Any
 
+from starlette.exceptions import HTTPException
+
 from app.observability.logging import log_context, log_event
 
 logger = logging.getLogger(__name__)
@@ -62,8 +64,17 @@ class RequestContextMiddleware:
                 )
 
 
-class _BodyTooLarge(Exception):
-    pass
+class _BodyTooLarge(HTTPException):
+    """Raised by `limited_receive` while FastAPI streams the body. Subclassing
+    HTTPException lets FastAPI's own body-parsing (`await request.body()` in
+    fastapi/routing.py, which catches any other exception and turns it into a
+    generic 400) recognise and re-raise it as-is via its `except HTTPException:
+    raise`, so ExceptionMiddleware renders the real 413. The `except
+    _BodyTooLarge` below still catches it for non-FastAPI ASGI apps that never
+    look at exception type."""
+
+    def __init__(self, max_bytes: int) -> None:
+        super().__init__(status_code=413, detail=f"Request body is larger than the {max_bytes}-byte limit")
 
 
 class RequestSizeLimitMiddleware:
@@ -90,7 +101,7 @@ class RequestSizeLimitMiddleware:
             if message["type"] == "http.request":
                 received += len(message.get("body", b""))
                 if received > self.max_bytes:
-                    raise _BodyTooLarge
+                    raise _BodyTooLarge(self.max_bytes)
             return message
 
         async def tracking_send(message: dict[str, Any]) -> None:
@@ -107,7 +118,7 @@ class RequestSizeLimitMiddleware:
             await self._reject(send)
 
     async def _reject(self, send: Send) -> None:
-        body = json.dumps({"detail": f"Request body is larger than the {self.max_bytes}-byte limit"}).encode()
+        body = json.dumps({"detail": _BodyTooLarge(self.max_bytes).detail}).encode()
         await send({
             "type": "http.response.start",
             "status": 413,

@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.projects import router as projects_router
 from app.config import get_settings
+from app.observability.http import RequestContextMiddleware, RequestSizeLimitMiddleware
 from app.observability.logging import configure_logging
 from app.persistence.migrations import upgrade_to_head
 
@@ -23,12 +24,15 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Drumscore API", lifespan=lifespan)
 app.include_router(projects_router)
 
+app.add_middleware(RequestSizeLimitMiddleware, max_bytes=_settings.max_request_bytes)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
+app.add_middleware(RequestContextMiddleware)
 
 
 @app.get("/api/health")

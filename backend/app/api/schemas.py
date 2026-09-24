@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.diagnostics import EventDiagnostic
 from app.persistence.models import Job, JobStatus, Project, ProjectSummary
@@ -152,7 +152,7 @@ class ProjectResponse(BaseModel):
 
 
 class CreateProjectRequest(BaseModel):
-    url: str
+    url: str = Field(max_length=2048)
 
 
 class CreateProjectResponse(BaseModel):

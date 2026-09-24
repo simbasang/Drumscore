@@ -66,6 +66,12 @@ def memory_harness(tmp_path):
     app.dependency_overrides.clear()
 
 
+def test_create_rejects_urls_longer_than_2048_characters(harness):
+    response = harness.create("https://youtu.be/dQw4w9WgXcQ?x=" + "a" * 2048)
+
+    assert response.status_code == 422
+
+
 def test_create_enqueues_a_project_without_running_the_pipeline(harness):
     response = harness.create()
 

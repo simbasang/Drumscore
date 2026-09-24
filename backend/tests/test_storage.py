@@ -61,7 +61,7 @@ def test_failed_copy_leaves_no_committed_file(tmp_path, monkeypatch):
     assert list((tmp_path / "tmp").iterdir()) == []
 
 
-@pytest.mark.parametrize("bad_key", ["/etc/passwd", "../escape", "a/../../b", "a\\b", ""])
+@pytest.mark.parametrize("bad_key", ["/etc/passwd", "../escape", "a/../../b", "a\\b", "", "C:/evil.txt", "Z:/x/y", "c:relative"])
 def test_path_rejects_unsafe_keys(tmp_path, bad_key):
     storage = LocalArtifactStorage(tmp_path)
 

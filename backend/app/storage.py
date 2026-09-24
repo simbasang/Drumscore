@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import ContextManager, Protocol
 
 _CHUNK = 1024 * 1024
@@ -50,7 +50,24 @@ class LocalArtifactStorage:
         pure = PurePosixPath(key)
         if not key or "\\" in key or pure.is_absolute() or ".." in pure.parts:
             raise ValueError(f"Unsafe storage key: {key!r}")
-        return self.root.joinpath(*pure.parts)
+
+        # Reject Windows drive letters (e.g., "C:/evil.txt", "Z:/x/y", "c:relative")
+        if pure.parts and ":" in pure.parts[0]:
+            raise ValueError(f"Unsafe storage key: {key!r}")
+
+        # Defense in depth: verify the joined path stays inside root
+        candidate = self.root.joinpath(*pure.parts)
+        try:
+            candidate_resolved = candidate.resolve()
+            root_resolved = self.root.resolve()
+            # Ensure candidate is root or a descendant of root
+            if candidate_resolved != root_resolved and root_resolved not in candidate_resolved.parents:
+                raise ValueError(f"Unsafe storage key: {key!r}")
+        except (OSError, RuntimeError):
+            # If resolve() fails, reject the key as unsafe
+            raise ValueError(f"Unsafe storage key: {key!r}")
+
+        return candidate
 
     @contextmanager
     def staging_dir(self) -> Iterator[Path]:

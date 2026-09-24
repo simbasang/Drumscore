@@ -17,8 +17,10 @@ from tests.fakes import (
     FakeBeatDetector,
     FakeClock,
     FakeExtractor,
+    FakeMonotonic,
     FakeSeparator,
     FakeTranscriber,
+    logged_events,
     make_engines,
 )
 
@@ -48,7 +50,7 @@ def new_project(store, clock, title=URL):
     )
 
 
-def run(store, storage, clock, engines, should_stop=lambda: False):
+def run(store, storage, clock, engines, should_stop=lambda: False, monotonic=None):
     job = store.claim_next_job(OWNER, 300, clock())
     ctx = JobContext(
         store=store,
@@ -58,9 +60,19 @@ def run(store, storage, clock, engines, should_stop=lambda: False):
         retry_base_seconds=30,
         clock=clock,
         should_stop=should_stop,
+        monotonic=monotonic or FakeMonotonic(),
     )
     process_job(job, ctx)
     return store.get_job(job.id)
+
+
+def run_with_outcome(store, storage, clock, engines, monotonic=None):
+    job = store.claim_next_job(OWNER, 300, clock())
+    ctx = JobContext(
+        store=store, storage=storage, engines=engines, owner=OWNER, retry_base_seconds=30, clock=clock,
+        monotonic=monotonic or FakeMonotonic(),
+    )
+    return process_job(job, ctx), store.get_job(job.id)
 
 
 def test_full_run_completes_job_with_analysis_artifacts_and_title(store, storage, clock):
@@ -157,21 +169,77 @@ def test_resumed_job_whose_source_was_pruned_after_separation_does_not_extract_a
     assert extractor.calls == 1
 
 
-def test_stages_that_run_are_logged_and_reused_stages_are_not(store, storage, clock, caplog):
-    engines = make_engines()
+def test_each_stage_logs_start_and_finish_with_its_duration(store, storage, clock, caplog):
+    monotonic = FakeMonotonic()
+    engines = make_engines(separator=FakeSeparator(on_call=lambda: monotonic.advance(2.5)))
     new_project(store, clock)
 
     with caplog.at_level(logging.INFO, logger="app.pipeline.runner"):
-        first = run(store, storage, clock, engines)
-        first_messages = list(caplog.messages)
-        caplog.clear()
-        new_project(store, clock)
+        outcome, _ = run_with_outcome(store, storage, clock, engines, monotonic)
+
+    assert outcome == "completed"
+    assert [e["stage"] for e in logged_events(caplog, "stage_started")] == ["extract", "separate", "transcribe", "map_tempo"]
+    finished = {e["stage"]: e for e in logged_events(caplog, "stage_finished")}
+    assert finished["separate"] == {"stage": "separate", "duration_ms": 2500, "outcome": "ran"}
+    assert finished["extract"]["duration_ms"] == 0
+    assert set(finished) == {"extract", "separate", "transcribe", "map_tempo"}
+
+
+def test_reused_stages_log_a_cached_finish_without_a_start(store, storage, clock, caplog):
+    # Importing app.main (e.g. via test_projects_api.py at collection time)
+    # permanently raises the root logger to INFO for the rest of the
+    # session, so the untracked first run below must be pinned back down
+    # or its stage events leak into this test's caplog capture too.
+    caplog.set_level(logging.WARNING, logger="app.pipeline.runner")
+    engines = make_engines()
+    new_project(store, clock)
+    run(store, storage, clock, engines)
+    new_project(store, clock)
+
+    with caplog.at_level(logging.INFO, logger="app.pipeline.runner"):
         run(store, storage, clock, engines)
 
-    assert [m for m in first_messages if "running stage" in m] == [
-        f"Job {first.id} running stage {stage}" for stage in ("extract", "separate", "transcribe")
+    assert [e["stage"] for e in logged_events(caplog, "stage_started")] == ["map_tempo"]
+    cached = [e for e in logged_events(caplog, "stage_finished") if e["outcome"] == "cached"]
+    assert [e["stage"] for e in cached] == ["separate", "transcribe"]
+
+
+def test_failing_stage_logs_stage_failed_and_the_job_fails(store, storage, clock, caplog):
+    monotonic = FakeMonotonic()
+    error = StemSeparationError("Demucs failed: bad input")
+    engines = make_engines(separator=FakeSeparator(error=error, on_call=lambda: monotonic.advance(1)))
+    new_project(store, clock)
+
+    with caplog.at_level(logging.INFO, logger="app.pipeline.runner"):
+        outcome, job = run_with_outcome(store, storage, clock, engines, monotonic)
+
+    assert outcome == "failed"
+    assert job.status == JobStatus.FAILED
+    assert logged_events(caplog, "stage_failed") == [
+        {"stage": "separate", "duration_ms": 1000, "error_type": "StemSeparationError", "permanent": True}
     ]
-    assert not any("running stage" in m for m in caplog.messages)
+    assert [e["stage"] for e in logged_events(caplog, "stage_finished")] == ["extract"]
+
+
+def test_transient_failure_reports_retry_scheduled(store, storage, clock, caplog):
+    engines = make_engines(separator=FakeSeparator(error=OSError("disk hiccup")))
+    new_project(store, clock)
+
+    with caplog.at_level(logging.INFO, logger="app.pipeline.runner"):
+        outcome, job = run_with_outcome(store, storage, clock, engines)
+
+    assert outcome == "retry_scheduled"
+    assert logged_events(caplog, "stage_failed")[0]["permanent"] is False
+
+
+def test_deleted_project_reports_failed(store, storage, clock):
+    project, _ = new_project(store, clock)
+    store.soft_delete_project(project.id, clock())
+
+    outcome, job = run_with_outcome(store, storage, clock, make_engines())
+
+    assert outcome == "failed"
+    assert job.error == "Project was deleted"
 
 
 def test_cache_entry_with_missing_file_is_ignored(store, storage, clock):

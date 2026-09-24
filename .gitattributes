@@ -1,0 +1,4 @@
+# Container build inputs keep LF line endings on every platform, so an image
+# built from a Windows checkout matches one built on Linux.
+Dockerfile text eol=lf
+.dockerignore text eol=lf

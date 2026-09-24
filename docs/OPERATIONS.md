@@ -9,7 +9,9 @@ is stale.
 
 ## 1. Processes
 
-Two kinds of process share one Postgres database and one `STORAGE_ROOT`:
+Production runs these as containers (`docs/DEPLOYMENT.md`); the commands
+below are the same processes run directly. Two kinds of process share one
+Postgres database and one `STORAGE_ROOT`:
 
 - **API** (one process):
 
@@ -35,6 +37,19 @@ Two kinds of process share one Postgres database and one `STORAGE_ROOT`:
   Each worker process claims and runs one job at a time from the Postgres
   queue; running `WORKER_CONCURRENCY` processes bounds how many pipelines
   run concurrently (§4 of `docs/PERSISTENCE.md`).
+
+- **Migrations** (one-shot, before the API/workers start; the API can also
+  apply them itself when `RUN_MIGRATIONS_ON_STARTUP` is true):
+
+  ```bash
+  cd backend
+  uv run python -m app.persistence.migrations
+  ```
+
+- **Readiness**: `GET /api/health` is liveness only; `GET /api/ready` and
+  `python -m app.readiness api|worker` check the database (reachable, migrated
+  to head), the storage root (writable) and, for a worker, the engines
+  (`docs/DEPLOYMENT.md` §4).
 
 ## 2. Configuration
 
@@ -65,6 +80,7 @@ storage regardless of where they were started from.
 | `MAX_REQUEST_BYTES` | `5242880` (5 MiB) | | Largest HTTP request body accepted by the API. |
 | `MAX_ACTIVE_JOBS` | `20` | | Most jobs that may be queued or running at once before new jobs are refused. |
 | `STORAGE_MAX_BYTES` | `107374182400` (100 GiB) | | Most live artifact bytes allowed before new jobs are refused. |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | | Browser origins allowed to call the API: the frontend's public URL(s), comma-separated or a JSON list. |
 
 ## 3. Secrets
 
@@ -84,9 +100,10 @@ password.
 `backend/.env` is git-ignored (`backend/.gitignore`) and must never be
 committed. `backend/.env.example` holds only development placeholders — the
 default local Postgres user/password above, never a real credential.
-Production supplies secrets through the environment; the exact mechanism
-(container secrets, a secrets manager, ...) is decided when
-productionization starts (#85), not by this doc.
+Production supplies secrets through the environment: the Compose stack
+(`docs/DEPLOYMENT.md` §2) reads `POSTGRES_PASSWORD` from the git-ignored
+`deploy/.env` and builds `DATABASE_URL` from it; no secret is baked into an
+image.
 
 `job.error` (the API's own error text, returned by `GET
 /api/projects/{id}`) is sanitized before it is ever stored, via

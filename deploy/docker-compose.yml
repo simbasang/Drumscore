@@ -1,0 +1,104 @@
+# Drumscore production stack (single host). docs/DEPLOYMENT.md explains
+# every service, the configuration in deploy/.env and the upgrade procedure.
+#
+#   cp deploy/.env.example deploy/.env   # then set POSTGRES_PASSWORD etc.
+#   docker compose -f deploy/docker-compose.yml up -d --build
+
+name: drumscore
+
+x-backend: &backend
+  image: drumscore-backend:${DRUMSCORE_VERSION:-latest}
+  build: ../backend
+  restart: unless-stopped
+  environment: &backend-env
+    DATABASE_URL: postgresql+psycopg://drumscore:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}@postgres:5432/drumscore
+    STORAGE_ROOT: /data
+    RUN_MIGRATIONS_ON_STARTUP: "false"
+    CORS_ALLOWED_ORIGINS: ${PUBLIC_FRONTEND_URL:-http://localhost:3000}
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  volumes:
+    - storage:/data
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: drumscore
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: drumscore
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U drumscore -d drumscore"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # One-shot: applies Alembic migrations, then exits. The API and the workers
+  # start only after it succeeded, so nothing runs against an old schema.
+  migrate:
+    <<: *backend
+    restart: "no"
+    command: ["python", "-m", "app.persistence.migrations"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *backend
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=10).status != 200)"]
+      interval: 30s
+      timeout: 15s
+      start_period: 30s
+      retries: 3
+
+  worker:
+    <<: *backend
+    command: ["python", "-m", "app.worker"]
+    environment:
+      <<: *backend-env
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+    # tini as PID 1: forwards SIGTERM to the worker and reaps engine children.
+    init: true
+    # A graceful stop lets the stage in flight finish (docs/PERSISTENCE.md §4);
+    # a Demucs stage on CPU can take minutes. Past this, the worker is killed
+    # and its job is reclaimed when the lease expires.
+    stop_grace_period: 10m
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.readiness", "worker"]
+      interval: 60s
+      timeout: 15s
+      start_period: 30s
+      retries: 3
+
+  frontend:
+    image: drumscore-frontend:${DRUMSCORE_VERSION:-latest}
+    build: ../frontend
+    restart: unless-stopped
+    environment:
+      API_URL: ${PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  pgdata:
+  storage:

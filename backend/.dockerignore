@@ -1,0 +1,13 @@
+.venv
+drumscript_runner/.venv
+drumscript_runner/**/drumscript_output
+data
+tests
+.env
+**/__pycache__
+.pytest_cache
+.coverage
+htmlcov
+*.log
+Dockerfile
+.dockerignore

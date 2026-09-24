@@ -55,7 +55,8 @@ pnpm dev
 ```
 
 The app runs at `http://localhost:3000` and reads the backend URL from
-`NEXT_PUBLIC_API_URL` (see `.env.local.example`).
+`API_URL` (see `.env.local.example`; an older `.env.local` with
+`NEXT_PUBLIC_API_URL` still works as a fallback).
 
 Run tests:
 
@@ -84,6 +85,13 @@ cd frontend && pnpm dev                                  # http://localhost:3000
   shorter than the lease.
 
 Tests: `cd backend && uv run pytest` (needs Docker; `-m "not integration"` skips Postgres tests) and `cd frontend && pnpm test`.
+
+## Production deployment
+
+Docker images for the backend and frontend plus a Compose stack live in
+`backend/Dockerfile`, `frontend/Dockerfile` and `deploy/`. See
+`docs/DEPLOYMENT.md` for the clean build/start, configuration, readiness
+checks, persistent volumes, backups and upgrades.
 
 ## Development order
 

@@ -97,3 +97,17 @@ def test_heartbeat_just_below_the_lease_is_accepted():
     settings = Settings(_env_file=None, lease_seconds=300, heartbeat_seconds=299.5)
 
     assert settings.heartbeat_seconds == 299.5
+
+
+def test_cors_allowed_origins_default_to_the_local_frontend():
+    settings = Settings(_env_file=None)
+
+    assert settings.cors_allowed_origins == ["http://localhost:3000"]
+
+
+def test_cors_allowed_origins_read_a_comma_separated_environment_variable(monkeypatch):
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://drums.example, https://www.drums.example")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.cors_allowed_origins == ["https://drums.example", "https://www.drums.example"]

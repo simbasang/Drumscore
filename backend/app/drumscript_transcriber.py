@@ -25,7 +25,7 @@ _INSTRUMENT_MAP = {
 }
 
 
-def _runner_python() -> Path:
+def runner_python() -> Path:
     if sys.platform == "win32":
         return _RUNNER_DIR / ".venv" / "Scripts" / "python.exe"
     return _RUNNER_DIR / ".venv" / "bin" / "python"
@@ -54,11 +54,11 @@ def _map_events(raw_events: list[dict]) -> list[DrumEvent]:
 
 class DrumScriptTranscriber:
     def transcribe(self, audio_path: Path) -> list[DrumEvent]:
-        runner_python = _runner_python()
+        runner = runner_python()
 
-        if not runner_python.exists():
+        if not runner.exists():
             raise TranscriptionError(
-                f"DrumScript runner environment not found at {runner_python}. "
+                f"DrumScript runner environment not found at {runner}. "
                 "Run `uv sync` inside backend/drumscript_runner first."
             )
 
@@ -67,7 +67,7 @@ class DrumScriptTranscriber:
 
             try:
                 result = subprocess.run(
-                    [str(runner_python), str(_RUNNER_SCRIPT), str(audio_path), str(events_path)],
+                    [str(runner), str(_RUNNER_SCRIPT), str(audio_path), str(events_path)],
                     capture_output=True,
                     text=True,
                     encoding="utf-8",

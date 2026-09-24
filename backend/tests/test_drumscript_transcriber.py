@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.drumscript_transcriber import _RUNNER_SCRIPT, DrumScriptTranscriber, _runner_python
+from app.drumscript_transcriber import _RUNNER_SCRIPT, DrumScriptTranscriber, runner_python
 from app.engine_process import detached_process_kwargs
 from app.transcription import DrumInstrument, TranscriptionError
 
@@ -31,7 +31,7 @@ def _writes_events_file(events: list[dict]):
 def fake_runner_python(tmp_path):
     runner_python = tmp_path / "python.exe"
     runner_python.write_text("")
-    with patch("app.drumscript_transcriber._runner_python", return_value=runner_python):
+    with patch("app.drumscript_transcriber.runner_python", return_value=runner_python):
         yield runner_python
 
 
@@ -124,7 +124,7 @@ def test_transcribe_raises_on_timeout(tmp_path):
 def test_runner_python_uses_unix_venv_layout_on_non_windows(monkeypatch):
     monkeypatch.setattr("app.drumscript_transcriber.sys.platform", "linux")
 
-    result = _runner_python()
+    result = runner_python()
 
     assert result.parts[-3:] == (".venv", "bin", "python")
 
@@ -132,7 +132,7 @@ def test_runner_python_uses_unix_venv_layout_on_non_windows(monkeypatch):
 def test_runner_python_uses_windows_venv_layout_on_windows(monkeypatch):
     monkeypatch.setattr("app.drumscript_transcriber.sys.platform", "win32")
 
-    result = _runner_python()
+    result = runner_python()
 
     assert result.parts[-3:] == (".venv", "Scripts", "python.exe")
 
@@ -140,7 +140,7 @@ def test_runner_python_uses_windows_venv_layout_on_windows(monkeypatch):
 def test_transcribe_raises_when_runner_environment_missing(tmp_path):
     missing_python = tmp_path / "does-not-exist" / "python.exe"
 
-    with patch("app.drumscript_transcriber._runner_python", return_value=missing_python):
+    with patch("app.drumscript_transcriber.runner_python", return_value=missing_python):
         with pytest.raises(TranscriptionError, match="runner environment"):
             DrumScriptTranscriber().transcribe(tmp_path / "drums.wav")
 

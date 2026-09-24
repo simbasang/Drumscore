@@ -25,7 +25,7 @@ hasn't run `uv sync` inside backend/drumscript_runner yet).
 import pytest
 
 from app.benchmark import evaluate_corpus
-from app.drumscript_transcriber import DrumScriptTranscriber, _runner_python
+from app.drumscript_transcriber import DrumScriptTranscriber, runner_python
 from app.transcription import DrumInstrument
 from tests.fixtures.benchmark_corpus import list_benchmark_songs
 
@@ -46,7 +46,7 @@ BASELINE_PER_INSTRUMENT_F1 = {
 REGRESSION_MARGIN_RATIO = 0.75
 
 pytestmark = pytest.mark.skipif(
-    not _runner_python().exists(),
+    not runner_python().exists(),
     reason="drumscript_runner environment not set up (run `uv sync` inside backend/drumscript_runner)",
 )
 

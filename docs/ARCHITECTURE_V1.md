@@ -32,7 +32,7 @@ One Web Audio transport owns source time, play/pause, seek, loop range, playback
 DrumTranscriber remains the boundary. Candidate engines return normalized events and real confidence only when defensible. Evaluation uses labelled fixtures and per-class metrics. Raw outputs remain available in diagnostics so classification errors can be separated from timing/engraving errors.
 
 ## Jobs and persistence
-MVP in-process jobs may remain through Epics 1–5. Epic 6 introduces persistent project/job state, queue dispatch, bounded workers, durable stage outputs, idempotent resume/retry and restart survival.
+Projects, jobs, artifacts, analyses, score versions and the stage cache are persisted in Postgres behind the `Store` protocol (`backend/app/persistence`). The API only enqueues. Separate `python -m app.worker` processes claim jobs with `FOR UPDATE SKIP LOCKED` leases, run each pipeline stage, and commit its output (written atomically to `ArtifactStorage`) before starting the next, so any crash resumes at the first stage without output. Retries are idempotent; stage outputs are reused across projects of the same source via a `PIPELINE_VERSION`-keyed cache. A pruner applies retention rules. Details: `docs/PERSISTENCE.md`.
 
 Storage distinguishes source audio, stems, raw transcription diagnostics, analysis/score data and user edits.
 

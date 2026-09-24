@@ -1,4 +1,4 @@
-import type { Beat } from "@/lib/api/jobs";
+import type { Beat } from "@/lib/api/types";
 
 export function beatPeriodAt(beats: Beat[], sourceTime: number): number | null {
   if (beats.length < 2) {

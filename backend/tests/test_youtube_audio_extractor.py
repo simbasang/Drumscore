@@ -32,24 +32,41 @@ def test_extract_raises_when_no_output_file_is_produced(tmp_path, source):
     extractor = YtDlpAudioExtractor()
 
     with patch("app.youtube_audio_extractor.yt_dlp.YoutubeDL") as mock_ydl_cls:
-        mock_ydl_cls.return_value.__enter__.return_value.download.return_value = None
+        mock_ydl_cls.return_value.__enter__.return_value.extract_info.return_value = {"title": "Song"}
 
         with pytest.raises(AudioExtractionError, match="did not produce"):
             extractor.extract(source, tmp_path / "job-1")
 
 
-def test_extract_returns_output_path_when_file_exists(tmp_path, source):
+def test_extract_returns_output_path_and_video_title(tmp_path, source):
     extractor = YtDlpAudioExtractor()
     destination_dir = tmp_path / "job-1"
     destination_dir.mkdir()
     (destination_dir / "source.wav").write_bytes(b"fake wav data")
 
     with patch("app.youtube_audio_extractor.yt_dlp.YoutubeDL") as mock_ydl_cls:
-        mock_ydl_cls.return_value.__enter__.return_value.download.return_value = None
+        mock_ydl = mock_ydl_cls.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {"title": "Never Gonna Give You Up"}
 
         result = extractor.extract(source, destination_dir)
 
-    assert result == destination_dir / "source.wav"
+    assert result.audio_path == destination_dir / "source.wav"
+    assert result.title == "Never Gonna Give You Up"
+    mock_ydl.extract_info.assert_called_once_with(source.url, download=True)
+
+
+def test_extract_returns_no_title_when_metadata_is_missing(tmp_path, source):
+    extractor = YtDlpAudioExtractor()
+    destination_dir = tmp_path / "job-1"
+    destination_dir.mkdir()
+    (destination_dir / "source.wav").write_bytes(b"fake wav data")
+
+    with patch("app.youtube_audio_extractor.yt_dlp.YoutubeDL") as mock_ydl_cls:
+        mock_ydl_cls.return_value.__enter__.return_value.extract_info.return_value = None
+
+        result = extractor.extract(source, destination_dir)
+
+    assert result.title is None
 
 
 def test_extract_wraps_download_errors(tmp_path, source):
@@ -58,7 +75,7 @@ def test_extract_wraps_download_errors(tmp_path, source):
     extractor = YtDlpAudioExtractor()
 
     with patch("app.youtube_audio_extractor.yt_dlp.YoutubeDL") as mock_ydl_cls:
-        mock_ydl_cls.return_value.__enter__.return_value.download.side_effect = (
+        mock_ydl_cls.return_value.__enter__.return_value.extract_info.side_effect = (
             yt_dlp.utils.DownloadError("video unavailable")
         )
 

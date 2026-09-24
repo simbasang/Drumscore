@@ -1,6 +1,6 @@
 import { useReducer } from "react";
 
-import type { AnalysisEvent, DrumInstrument } from "@/lib/api/jobs";
+import type { AnalysisEvent, DrumInstrument } from "@/lib/api/types";
 import { fromAnalysisEvents } from "./buildScore";
 import { BEATS_PER_MEASURE, consolidateRests, SLOT_DURATION, SUBDIVISIONS_PER_BEAT, toPosition } from "./grid";
 import { generateId } from "./id";
@@ -65,10 +65,15 @@ export interface ScoreEditor {
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  // True while `score` differs (by identity) from the last score loaded
+  // or passed to markSaved - undoing back to that score makes it clean.
+  isDirty: boolean;
+  markSaved: (score: Score) => void;
 }
 
 interface EditorState {
   score: Score;
+  savedScore: Score;
   undoStack: Score[];
   redoStack: Score[];
   trackedEvents: AnalysisEvent[];
@@ -78,7 +83,8 @@ type EditorAction =
   | { type: "apply-edit"; next: Score }
   | { type: "undo" }
   | { type: "redo" }
-  | { type: "reset"; events: AnalysisEvent[]; score: Score };
+  | { type: "reset"; events: AnalysisEvent[]; score: Score }
+  | { type: "mark-saved"; score: Score };
 
 // A pure reducer: every branch derives the next state only from (state,
 // action), with no nested setState-as-a-side-effect calls. React's Strict
@@ -121,19 +127,22 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
       };
     }
     case "reset":
-      return { score: action.score, undoStack: [], redoStack: [], trackedEvents: action.events };
+      return { score: action.score, savedScore: action.score, undoStack: [], redoStack: [], trackedEvents: action.events };
+    case "mark-saved":
+      return { ...state, savedScore: action.score };
     default:
       return state;
   }
 }
 
-function initEditorState(initialEvents: AnalysisEvent[]): EditorState {
-  return { score: buildInitialScore(initialEvents), undoStack: [], redoStack: [], trackedEvents: initialEvents };
+function initEditorState({ events, initialScore }: { events: AnalysisEvent[]; initialScore: Score | null }): EditorState {
+  const score = initialScore ?? buildInitialScore(events);
+  return { score, savedScore: score, undoStack: [], redoStack: [], trackedEvents: events };
 }
 
-export function useScoreEditor(events: AnalysisEvent[]): ScoreEditor {
-  const [state, dispatch] = useReducer(editorReducer, events, initEditorState);
-  const { score, undoStack, redoStack } = state;
+export function useScoreEditor(events: AnalysisEvent[], initialScore: Score | null = null): ScoreEditor {
+  const [state, dispatch] = useReducer(editorReducer, { events, initialScore }, initEditorState);
+  const { score, savedScore, undoStack, redoStack } = state;
 
   // Re-baselines when a genuinely new job's events arrive (a different
   // AnalysisEvent[] content, per sameEvents above) - there is nothing to
@@ -161,5 +170,7 @@ export function useScoreEditor(events: AnalysisEvent[]): ScoreEditor {
     redo: () => dispatch({ type: "redo" }),
     canUndo: undoStack.length > 0,
     canRedo: redoStack.length > 0,
+    isDirty: score !== savedScore,
+    markSaved: (saved) => dispatch({ type: "mark-saved", score: saved }),
   };
 }

@@ -1,4 +1,5 @@
-import JobForm from "@/components/JobForm";
+import NewProjectForm from "@/components/NewProjectForm";
+import ProjectLibrary from "@/components/ProjectLibrary";
 import styles from "./page.module.css";
 
 export default function Home() {
@@ -9,7 +10,8 @@ export default function Home() {
       <main className={styles.main}>
         <h1>Drumscore</h1>
         <p>Generate playable drum notation from a song.</p>
-        <JobForm apiBaseUrl={apiBaseUrl} />
+        <NewProjectForm apiBaseUrl={apiBaseUrl} />
+        <ProjectLibrary apiBaseUrl={apiBaseUrl} />
       </main>
     </div>
   );

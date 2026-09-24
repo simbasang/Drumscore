@@ -4,7 +4,7 @@ import {
   contextTimeForSourceTime,
   countInClickTimes,
 } from "../metronomeScheduling";
-import type { Beat } from "@/lib/api/jobs";
+import type { Beat } from "@/lib/api/types";
 
 function beat(source_time: number, measure: number, beatNumber: number, isDownbeat: boolean): Beat {
   return { source_time, measure, beat: beatNumber, is_downbeat: isDownbeat, confidence: null };

@@ -4,10 +4,14 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.13"
 dependencies = [
+    "alembic>=1.20.0",
     "demucs>=4.0.1",
     "fastapi>=0.141.1",
     "librosa>=1.0.0",
     "numpy>=2.5.3",
+    "psycopg[binary]>=3.3.6",
+    "pydantic-settings>=2.15.0",
+    "sqlalchemy>=2.0.54",
     "uvicorn[standard]>=0.53.0",
     "yt-dlp>=2026.8.19",
 ]
@@ -18,7 +22,11 @@ dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "soundfile>=0.14.0",
+    "testcontainers[postgres]>=4.15.0",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+markers = [
+    "integration: needs Docker (Postgres via testcontainers)",
+]

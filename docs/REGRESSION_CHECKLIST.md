@@ -14,36 +14,48 @@ green test suite already guarantees).
 ## Setup
 
 ```bash
-cd backend && uv run uvicorn app.main:app --reload   # http://localhost:8000
-cd frontend && pnpm dev                              # http://localhost:3000
+docker compose -f docker-compose.dev.yml up -d          # Postgres (port 5432)
+cd backend && uv run uvicorn app.main:app --reload      # API, http://localhost:8000
+cd backend && uv run python -m app.worker               # workers (second terminal)
+cd frontend && pnpm dev                                 # http://localhost:3000
 ```
+
+See README "Running locally" and `docs/PERSISTENCE.md` for configuration.
 
 ## 1. Submit
 
-- [ ] Paste a valid YouTube URL, click "Generate drum score" -> a job is created and its id/status shown immediately.
-  Automated: `frontend/components/__tests__/JobForm.test.tsx` (`"should display the created job after a successful submission"`).
+- [ ] Paste a valid YouTube URL, click "Generate drum score" -> a project is created and its project page opens immediately (processing has not started yet; the API only enqueues).
+  Automated: `frontend/components/__tests__/NewProjectForm.test.tsx` (`"should create a project and open it"`), `backend/tests/test_projects_api.py` (`test_create_enqueues_a_project_without_running_the_pipeline`).
 - [ ] Submit an empty URL -> inline validation error, no request sent.
-  Automated: `JobForm.test.tsx` (`"should show a validation error..."`).
+  Automated: `NewProjectForm.test.tsx` (`"should ask for a URL when the field is empty"`).
 - [ ] Submit an unsupported URL (e.g. a non-YouTube link) -> backend's 422 detail is shown verbatim.
-  Automated: `JobForm.test.tsx` (`"should display the backend's error message..."`), `backend/tests/test_jobs_api.py`.
+  Automated: `NewProjectForm.test.tsx` (`"should show the backend error"`), `backend/tests/test_projects_api.py` (`test_create_rejects_unsupported_urls`).
+- [ ] Submit the same song again -> the form offers "Open existing"; "Process anyway" creates a second project that reuses the cached stage outputs (the worker log shows no second `running stage extract`).
+  Automated: `NewProjectForm.test.tsx` (`"should offer to open the existing project for a duplicate song"`, `"should process a duplicate anyway when asked"`), `backend/tests/test_runner.py` (`test_forced_duplicate_reuses_cached_stage_outputs`, `test_forced_duplicate_after_source_audio_was_pruned_does_not_download_again`).
+- [ ] The library on the home page lists the project with its latest status; deleting it (after confirmation) removes it from the list.
+  Automated: `frontend/components/__tests__/ProjectLibrary.test.tsx`, `test_projects_api.py` (`test_list_returns_live_projects_with_status`, `test_delete_soft_deletes_and_hides_project`).
 
 ## 2. Process
 
-- [ ] Watch the status line progress through every stage in order: downloading -> downloaded -> separating stems -> transcribing -> mapping tempo -> Done, with the event count and BPM shown once transcribed/done.
-  Automated: `JobForm.test.tsx` (`"should poll for job status until it reaches tempo_mapped"`).
-- [ ] Kill the backend mid-poll (or block its port) -> after one missed poll, "Lost connection, retrying..." appears; if it stays down, polling stops after 3 consecutive failures and the message changes to a distinct "reload the page" message (not still "retrying...").
-  Automated: `JobForm.test.tsx` (`"should keep polling..."`, `"should show a gave-up message..."`). Manual: confirm the browser console also logs `[JobForm] poll attempt N/3 failed...` for each failure.
-- [ ] A pipeline stage that fails (e.g. an unreachable video) surfaces the backend's `error` field as an alert, and polling stops.
-  Automated: `JobForm.test.tsx` (`"should show the backend's error and stop polling..."`).
-- [ ] `GET /api/jobs/{id}/diagnostics` on a `tempo_mapped` job returns one entry per raw transcribed event, each with `source_time`, `measure`/`beat`/`subdivision`, `quantized_time`, and `quantization_error_seconds` — confirms raw transcription -> timing -> score data is inspectable for the same song without touching production state.
-  Automated: `backend/tests/test_diagnostics.py`, `backend/tests/test_jobs_api.py` (`test_get_diagnostics_*`).
+- [ ] On the project page, watch the status line progress through the stages in order: queued -> downloading -> separating stems -> transcribing -> mapping tempo, then the player appears once the job is `completed`.
+  Automated: `frontend/components/__tests__/ProjectView.test.tsx` (`"should show progress while processing and the player once completed"`), `backend/tests/test_runner.py`, `backend/tests/test_worker.py`.
+- [ ] Stop the API mid-poll (or block its port) -> "Lost connection, retrying..." appears; if it stays down, polling stops after 3 consecutive failures and a distinct "reload the page" alert replaces it.
+  Automated: `ProjectView.test.tsx` (`"should retry transient poll errors and give up after three in a row"`). Manual: confirm the browser console logs `[ProjectView] poll N/3 failed for project ...` for each failure.
+- [ ] A pipeline stage that fails permanently (e.g. an unreachable video) shows the backend's `error` as an alert with a "Retry processing" button; retrying requeues the job.
+  Automated: `ProjectView.test.tsx` (`"should show the failure and requeue on retry"`), `test_projects_api.py` (`test_retry_requeues_failed_job_only`).
+- [ ] Press Ctrl+C in the worker terminal while a job is separating stems -> the worker finishes or abandons the stage, the job is not marked failed, and on restart another worker resumes it without re-downloading.
+  Automated: `backend/tests/test_worker.py` (`test_stop_during_a_job_releases_the_lease_after_the_current_stage`, `test_stop_that_kills_the_engine_releases_the_lease_and_refunds_the_attempt`), `backend/tests/test_engine_process.py`.
+- [ ] `GET /api/projects/{id}/diagnostics` on a completed project returns one entry per raw transcribed event, each with `source_time`, `measure`/`beat`/`subdivision`, `quantized_time`, and `quantization_error_seconds` — confirms raw transcription -> timing -> score data is inspectable for the same song without touching production state.
+  Automated: `backend/tests/test_diagnostics.py`, `backend/tests/test_projects_api.py` (`test_diagnostics_before_and_after_completion`).
 
 ## 3. Load
 
-- [ ] Once processing reaches "Done", the score renders (percussion staff, all stems up, open/closed hi-hat visually distinct) and "Loading audio..." shows briefly before playback controls appear.
+- [ ] Once the job is completed, the score renders (percussion staff, all stems up, open/closed hi-hat visually distinct) and "Loading audio..." shows briefly before playback controls appear.
   Automated: `frontend/components/__tests__/DrumScore.test.tsx`, `frontend/components/__tests__/Player.test.tsx` (`"should show a loading state..."`, `"should show playback controls once audio has loaded"`).
-- [ ] If audio fails to load, a visible error replaces the controls, and the real underlying error (not a generic message) is logged to the console with the job id.
+- [ ] If audio fails to load, a visible error replaces the controls, and the real underlying error (not a generic message) is logged to the console with the project id.
   Automated: `Player.test.tsx` (`"should show an error message..."`, `"should log the underlying error..."`), `frontend/lib/audio/__tests__/loadAudioBuffer.test.ts` (retry/backoff).
+- [ ] Edit the score and save (button or Ctrl/Cmd+S) -> reloading the page (or restarting the API) shows the saved version, not a rebuilt score.
+  Automated: `Player.test.tsx` (`"should save the edited score and show it as saved"`, `"should save with Ctrl+S"`), `ProjectView.test.tsx` (`"should load the saved score instead of rebuilding from the analysis"`), `test_projects_api.py` (`test_project_survives_restart_with_saved_edits`).
 
 ## 4. Play
 
@@ -84,7 +96,7 @@ cd frontend && npx tsc --noEmit   # clean
 | Exit-gate criterion | Evidence |
 |---|---|
 | Known runtime defects are reproduced or explicitly classified | **Playhead jumping** (#36): reproduced via live full-song verification against a real processed song, root-caused to two concrete mechanisms (cross-row and cross-measure x-interpolation), fixed, and re-verified live. **AbortError** (#37): classified dev-only with concrete supporting evidence (code reading showing no `AbortController` anywhere and that `Player`'s cleanup never aborts a fetch, plus Next.js's own docs on Fast Refresh/Strict Mode dev-only effect re-invocation) — no production-relevant defect found. |
-| Raw transcription -> timing -> score data can be inspected for the same song | `GET /api/jobs/{id}/diagnostics` (#35): pairs every raw transcribed event with its quantized musical position, reconstructed time, and quantization error, without altering production results — see "Process" section above. |
+| Raw transcription -> timing -> score data can be inspected for the same song | `GET /api/jobs/{id}/diagnostics` (#35; now `GET /api/projects/{id}/diagnostics` since Epic 6 Slice A): pairs every raw transcribed event with its quantized musical position, reconstructed time, and quantization error, without altering production results — see "Process" section above. |
 | Regression baseline exists | The backend (165 tests) and frontend (95 tests) automated suites, plus this checklist, plus `backend/tests/fixtures/` (#34)'s deterministic synthetic diagnostic-song corpus (steady 4/4, intro count-in, dense fill, timing variation) for reproducible timing-case testing going forward. |
 
 Implementation issues: #34, #35, #36, #37, #38 — all merged to `main`.

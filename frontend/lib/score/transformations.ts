@@ -1,4 +1,4 @@
-import type { DrumInstrument } from "@/lib/api/jobs";
+import type { DrumInstrument } from "@/lib/api/types";
 import { consolidateDurations, expandMeasure, SLOT_DURATION, toSixteenthIndex } from "./grid";
 import { generateId } from "./id";
 import type { MusicalPosition, Score, ScoreHit, ScoreNote, Slot } from "./types";

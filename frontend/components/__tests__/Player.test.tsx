@@ -1,5 +1,6 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
+import { ScoreConflictError } from "@/lib/api/projects";
 import { loadAudioBuffer } from "@/lib/audio/loadAudioBuffer";
 import { PracticeTransport } from "@/lib/audio/PracticeTransport";
 import { SyncedPlayer } from "@/lib/audio/SyncedPlayer";
@@ -72,7 +73,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -94,7 +95,7 @@ describe("Player", () => {
     const { unmount } = render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -120,7 +121,7 @@ describe("Player", () => {
     const { unmount } = render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -146,7 +147,7 @@ describe("Player", () => {
     const { unmount } = render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={() => fakeContext as never}
       />,
@@ -162,7 +163,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -181,7 +182,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -200,7 +201,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -208,7 +209,7 @@ describe("Player", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/failed to load audio/i);
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("job-1"),
+      expect.stringContaining("project-1"),
       loadError,
     );
 
@@ -220,7 +221,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -247,7 +248,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -272,7 +273,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -290,7 +291,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -308,7 +309,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -326,7 +327,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -344,7 +345,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -390,7 +391,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -421,7 +422,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -455,7 +456,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -472,7 +473,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -497,7 +498,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -514,7 +515,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -549,7 +550,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         beats={beats}
         createAudioContext={fakeContextFactoryWithOscillator}
@@ -567,7 +568,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         beats={[]}
         createAudioContext={fakeContextFactoryWithOscillator}
@@ -587,7 +588,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         beats={[]}
         createAudioContext={fakeContextFactoryWithOscillator}
@@ -605,7 +606,7 @@ describe("Player", () => {
     render(
       <Player
         apiBaseUrl="http://localhost:8000"
-        jobId="job-1"
+        projectId="project-1"
         events={[]}
         createAudioContext={fakeContextFactory}
       />,
@@ -637,7 +638,7 @@ describe("Player", () => {
       render(
         <Player
           apiBaseUrl="http://localhost:8000"
-          jobId="job-1"
+          projectId="project-1"
           events={[]}
           beats={beats}
           createAudioContext={fakeContextFactoryWithOscillator}
@@ -667,7 +668,7 @@ describe("Player", () => {
       const { unmount } = render(
         <Player
           apiBaseUrl="http://localhost:8000"
-          jobId="job-1"
+          projectId="project-1"
           events={[]}
           beats={beats}
           createAudioContext={fakeContextFactoryWithOscillator}
@@ -700,7 +701,7 @@ describe("Player", () => {
       render(
         <Player
           apiBaseUrl="http://localhost:8000"
-          jobId="job-1"
+          projectId="project-1"
           events={[]}
           createAudioContext={fakeContextFactory}
         />,
@@ -725,7 +726,7 @@ describe("Player", () => {
       render(
         <Player
           apiBaseUrl="http://localhost:8000"
-          jobId="job-1"
+          projectId="project-1"
           events={[]}
           createAudioContext={fakeContextFactory}
         />,
@@ -748,5 +749,141 @@ describe("Player", () => {
       const movedOptions = within(hitSelect).getAllByRole("option");
       expect(movedOptions[1].textContent).toMatch(/m1 b4\./);
     });
+  });
+});
+
+describe("Player saving", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (loadAudioBuffer as jest.Mock).mockResolvedValue({ duration: 30 });
+  });
+
+  async function renderWithSave(onSave = jest.fn().mockResolvedValue(undefined), onReloadRequested = jest.fn()) {
+    render(
+      <Player
+        apiBaseUrl="http://localhost:8000"
+        projectId="project-1"
+        events={[]}
+        createAudioContext={fakeContextFactory}
+        onSave={onSave}
+        onReloadRequested={onReloadRequested}
+      />,
+    );
+    await screen.findByRole("button", { name: "Save" });
+    return { onSave, onReloadRequested };
+  }
+
+  it("should not render save controls without an onSave handler", async () => {
+    render(<Player apiBaseUrl="http://localhost:8000" projectId="project-1" events={[]} createAudioContext={fakeContextFactory} />);
+    await screen.findByRole("button", { name: /play/i });
+
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+  });
+
+  it("should load audio from the project's stem URLs", async () => {
+    await renderWithSave();
+
+    expect(loadAudioBuffer).toHaveBeenCalledWith("http://localhost:8000/api/projects/project-1/audio/drums", expect.anything());
+    expect(loadAudioBuffer).toHaveBeenCalledWith("http://localhost:8000/api/projects/project-1/audio/accompaniment", expect.anything());
+  });
+
+  it("should disable Save until the score has unsaved changes", async () => {
+    await renderWithSave();
+
+    const save = screen.getByRole("button", { name: "Save" });
+
+    expect(save).toBeDisabled();
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+  });
+
+  it("should save the edited score and show it as saved", async () => {
+    const { onSave } = await renderWithSave();
+    fireEvent.click(screen.getByRole("button", { name: "Add hit" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ measures: expect.any(Array) }));
+    expect(await screen.findByText("All changes saved")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("should save with Ctrl+S", async () => {
+    const { onSave } = await renderWithSave();
+    fireEvent.click(screen.getByRole("button", { name: "Add hit" }));
+
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+  });
+
+  it("should ignore Ctrl+S when there is nothing to save", async () => {
+    const { onSave } = await renderWithSave();
+
+    fireEvent.keyDown(window, { key: "s", metaKey: true });
+    fireEvent.keyDown(window, { key: "x", ctrlKey: true });
+
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("should warn before leaving the page with unsaved changes", async () => {
+    await renderWithSave();
+    fireEvent.click(screen.getByRole("button", { name: "Add hit" }));
+    const event = new Event("beforeunload", { cancelable: true });
+
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("should not warn before leaving when everything is saved", async () => {
+    await renderWithSave();
+    const event = new Event("beforeunload", { cancelable: true });
+
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("should show a save error and keep the changes unsaved", async () => {
+    await renderWithSave(jest.fn().mockRejectedValue(new Error("Network down")));
+    fireEvent.click(screen.getByRole("button", { name: "Add hit" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Network down");
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reload" })).not.toBeInTheDocument();
+  });
+
+  it("should offer a reload when a newer version was saved elsewhere", async () => {
+    const { onReloadRequested } = await renderWithSave(
+      jest.fn().mockRejectedValue(new ScoreConflictError("A newer version was saved elsewhere", 3)),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add hit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Reload" }));
+
+    expect(onReloadRequested).toHaveBeenCalled();
+  });
+
+  it("should use a generic message when a non-Error is thrown", async () => {
+    await renderWithSave(jest.fn().mockRejectedValue("nope"));
+    fireEvent.click(screen.getByRole("button", { name: "Add hit" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Save failed.");
+  });
+
+  it("should start from the provided initial score", async () => {
+    const initialScore = {
+      measures: [[{ type: "note" as const, id: "n1", position: { measure: 1, beat: 1, subdivision: 0 }, duration: "w", hits: [{ id: "h1", sourceEventId: null, time: null, instrument: "snare" as const, confidence: null, provenance: "manual" }] }]],
+    };
+
+    render(<Player apiBaseUrl="http://localhost:8000" projectId="project-1" events={[]} createAudioContext={fakeContextFactory} initialScore={initialScore} />);
+    const hitSelect = await screen.findByLabelText(/select hit to edit/i);
+
+    expect(within(hitSelect).getByRole("option", { name: /snare/i })).toBeInTheDocument();
   });
 });

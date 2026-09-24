@@ -1,4 +1,4 @@
-import type { AnalysisEvent } from "@/lib/api/jobs";
+import type { AnalysisEvent } from "@/lib/api/types";
 import { BEATS_PER_MEASURE, consolidateDurations, SLOT_DURATION, SUBDIVISIONS_PER_BEAT } from "./grid";
 import { generateId } from "./id";
 import type { Measure, MusicalPosition, Score, ScoreNote, Slot } from "./types";

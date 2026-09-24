@@ -64,6 +64,27 @@ cd frontend
 pnpm test
 ```
 
+## Running locally
+
+```bash
+docker compose -f docker-compose.dev.yml up -d          # Postgres 18 on port 5432
+cd backend && cp .env.example .env
+uv run uvicorn app.main:app --reload                     # API (applies migrations on startup)
+cd backend && uv run python -m app.worker                # workers (second terminal)
+cd frontend && pnpm dev                                  # http://localhost:3000 (third terminal)
+```
+
+- Port 5432 must be free. If another Postgres already uses it, change the host port in
+  `docker-compose.dev.yml` and the port in `DATABASE_URL` (`backend/.env`) together.
+- Ctrl+C in the worker terminal stops gracefully: the stage in flight finishes or is
+  abandoned, and the job goes back to the queue without using up an attempt
+  (`docs/PERSISTENCE.md` §4).
+- If you shorten `LEASE_SECONDS` (for example to test lease expiry), set
+  `HEARTBEAT_SECONDS` below it as well; the settings refuse a heartbeat that is not
+  shorter than the lease.
+
+Tests: `cd backend && uv run pytest` (needs Docker; `-m "not integration"` skips Postgres tests) and `cd frontend && pnpm test`.
+
 ## Development order
 
 The project is built incrementally, one MVP task from `PROJECT.md` at a time.

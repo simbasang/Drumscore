@@ -5,7 +5,7 @@ import {
   type MetronomeContextLike,
   type PlayerLike,
 } from "../PracticeTransport";
-import type { Beat } from "@/lib/api/jobs";
+import type { Beat } from "@/lib/api/types";
 
 class FakePlayer implements PlayerLike {
   isPlaying = false;

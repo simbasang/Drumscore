@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from app.drumscript_transcriber import _RUNNER_SCRIPT, DrumScriptTranscriber, _runner_python
+from app.engine_process import detached_process_kwargs
 from app.transcription import DrumInstrument, TranscriptionError
 
 
@@ -78,6 +79,7 @@ def test_transcribe_invokes_runner_script_with_audio_and_output_paths(tmp_path, 
         assert command[1] == str(_RUNNER_SCRIPT)
         assert command[2] == str(audio_path)
         assert kwargs["timeout"] == 600
+        assert detached_process_kwargs().items() <= kwargs.items()
 
 
 def test_transcribe_raises_when_runner_exits_nonzero(tmp_path):

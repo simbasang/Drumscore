@@ -1,4 +1,4 @@
-import type { DrumInstrument } from "@/lib/api/jobs";
+import type { DrumInstrument } from "@/lib/api/types";
 
 export interface InstrumentNotation {
   key: string;

@@ -2,6 +2,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from app.engine_process import detached_process_kwargs
 from app.stem_separation import SeparatedStems, StemSeparationError
 
 _MODEL_NAME = "htdemucs"
@@ -29,6 +30,7 @@ class DemucsStemSeparator:
                 capture_output=True,
                 text=True,
                 timeout=_TIMEOUT_SECONDS,
+                **detached_process_kwargs(),
             )
         except subprocess.TimeoutExpired as error:
             raise StemSeparationError(

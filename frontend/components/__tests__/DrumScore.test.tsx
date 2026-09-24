@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
-import type { AnalysisEvent } from "@/lib/api/jobs";
+import type { AnalysisEvent } from "@/lib/api/types";
 import { fromAnalysisEvents } from "@/lib/score/buildScore";
 import DrumScore from "../DrumScore";
 

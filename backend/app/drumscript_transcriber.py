@@ -5,6 +5,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
+from app.engine_process import detached_process_kwargs
 from app.transcription import DrumEvent, DrumInstrument, TranscriptionError
 
 _RUNNER_DIR = Path(__file__).resolve().parent.parent / "drumscript_runner"
@@ -70,6 +71,7 @@ class DrumScriptTranscriber:
                     capture_output=True,
                     text=True,
                     timeout=_TIMEOUT_SECONDS,
+                    **detached_process_kwargs(),
                 )
             except subprocess.TimeoutExpired as error:
                 raise TranscriptionError(

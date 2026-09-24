@@ -1,5 +1,5 @@
 import type { GainNodeLike } from "./SyncedPlayer";
-import type { Beat } from "@/lib/api/jobs";
+import type { Beat } from "@/lib/api/types";
 import { beatPeriodAt, contextTimeForSourceTime, countInClickTimes } from "./metronomeScheduling";
 
 const METRONOME_LOOKAHEAD_SECONDS = 0.1;

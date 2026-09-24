@@ -25,6 +25,9 @@ and a cleanup task (scheduled or triggered on new job creation).
 entry and its `data/jobs/<id>` directory) older than 24 hours,
 triggered at the top of `POST /api/jobs`.
 
+**Superseded (Epic 6 Slice A):** replaced by the pruner's retention
+rules, see docs/PERSISTENCE.md.
+
 ---
 
 ## No concurrency limit on heavy pipeline jobs
@@ -43,6 +46,9 @@ pipeline runs execute concurrently, with the rest waiting in `queued`.
 semaphore (default: 2 concurrent), used by both job creation and
 retry. A job waiting for a slot stays in whatever status it already
 has.
+
+**Superseded (Epic 6 Slice A):** worker process count
+(`WORKER_CONCURRENCY`) bounds concurrent pipelines.
 
 ---
 
@@ -290,7 +296,8 @@ constant grid - the fallback and its `quantize_events`/
 
 **Found in:** V1-011 final review
 
-`run_tempo_mapping` (`backend/app/job_processor.py`) shifts every stored
+`map_tempo` (`backend/app/pipeline/tempo_mapping.py`; `run_tempo_mapping` in
+the since-removed `backend/app/job_processor.py` when this was found) shifts every stored
 event's `measure` by a uniform `shift` whenever `quantize_events_with_beats`
 placed any event before the first detected beat (extrapolated `measure <= 0`),
 so the frontend's 1-based `buildMeasures` doesn't silently drop it. It stores
@@ -318,8 +325,8 @@ unaffected.
 **Fix would involve:** shifting the stored `beats` list by the same amount
 as the events (so quantization and its inverse share one origin), or
 reporting `quantized_time`/`quantization_error_seconds` from the pre-shift
-measure values. `test_run_tempo_mapping_quantizes_with_beats_and_stores_them`
-(`backend/tests/test_job_processor.py`) already uses the offset-beats
+measure values. `test_map_tempo_shifts_measures_so_pre_first_beat_events_are_kept`
+(`backend/tests/test_tempo_mapping.py`) already uses the offset-beats
 fixture, so a regression test is cheap to add alongside the fix.
 
 **Deferred:** out of scope for V1-011 (#44) - tracked here for a follow-up
@@ -583,3 +590,275 @@ pattern `pause()` already uses.
 wave already spent) since no live caller can reach it; revisit only if a
 future caller invokes `playWithCountIn()` without the existing UI-level
 guard.
+
+---
+
+## Orphaned stage files
+
+**Found in:** Epic 6 Slice A
+
+A crash between `storage.put` (which writes and renames a stage's output file
+into place) and `commit_stage` (which writes the corresponding `artifacts` row
+in the same transaction as the job's status and cache entry) leaves a file at
+the job's storage key with no database row referencing it. `_run_stages`'s
+next run of the same job re-derives the same key and overwrites it via
+`storage.put`, so a job that eventually succeeds or is retried cleans up after
+itself. But a job that is *never* retried (e.g. deliberately abandoned, or one
+whose project is soon after soft-deleted before that stage's job ever runs
+again) leaks that file: the pruner's `disposable_storage_keys` only considers
+keys that have an `artifacts` row, so an orphaned file with no row is invisible
+to it and stays on disk until someone cleans storage manually.
+
+**Fix would involve:** either writing a provisional `artifacts` row before
+`storage.put` (marked pending until `commit_stage` confirms it, so the pruner
+can find and remove it if the job never resumes), or a separate orphan sweep
+that lists storage keys under `projects/<project_id>/<job_id>/` with no
+matching `artifacts` row for jobs whose project is deleted or whose job is
+long-abandoned.
+
+**Deferred:** narrow window (a crash in the few instructions between the
+storage write and the transaction commit), self-healing on any retried job,
+and no user-visible impact — recorded so unexplained storage growth on
+never-retried jobs doesn't get mis-diagnosed later.
+
+---
+
+## Unbounded score history
+
+**Found in:** Epic 6 Slice A
+
+`score_versions` keeps every save as its own row (`PostgresStore.save_score`
+always inserts, never overwrites) with no cap on row count and no compaction of
+old versions. A project edited many times over its lifetime accumulates one
+row per save indefinitely.
+
+**Fix would involve:** a retention policy for old score versions (e.g. keep
+the latest N, or collapse versions older than some age into a single
+snapshot), applied either by the pruner or a separate maintenance pass, being
+careful not to break `base_version` optimistic-concurrency checks for any
+save still in flight against an older version.
+
+**Deferred:** out of scope for Epic 6 Slice A; score JSON is small relative to
+audio/stem artifacts, so this is a slow-growing concern rather than an urgent
+one — revisit if a long-lived project's version count becomes a real problem.
+
+---
+
+## No authentication
+
+**Found in:** Epic 6 Slice A
+
+v1 has no authentication or authorization anywhere in the API. It relies
+entirely on deployment-level access control (private network / reverse-proxy
+auth) to keep it from being reachable by anyone but its intended user. Anyone
+who can reach the API can list, create, retry and delete any project —
+including `DELETE /api/projects/{id}`, which soft-deletes (and, after the next
+prune, permanently purges) another user's work.
+
+**Fix would involve:** adding an auth layer (API keys, session auth, or
+similar) in front of the projects router, plus per-project ownership checks,
+before this is ever deployed somewhere it isn't already behind a private
+network or reverse-proxy auth.
+
+**Deferred:** out of scope for Epic 6 Slice A; acceptable for the current
+single-user, privately-deployed use case; must be resolved before any
+production deployment reachable by more than one trusted party.
+
+---
+
+## Correlation IDs are stored but not yet propagated to logs
+
+**Found in:** Epic 6 Slice A
+
+`jobs.correlation_id` is generated and stored on every job
+(`PostgresStore.create_project_with_job`), but nothing yet threads it into the
+worker's or API's log records, so a job's `correlation_id` can't currently be
+used to grep a single job's full log trail across the API and worker
+processes.
+
+**Fix would involve:** binding `correlation_id` into the logging context (e.g.
+a `logging.LoggerAdapter` or structured-logging `extra=`) for the duration of
+each job's processing in the worker, and logging it alongside the job ID on
+the API's own request-handling logs.
+
+**Deferred:** this is Slice B (#84) — observability/structured logging is a
+separate slice's scope, not Slice A's.
+
+---
+
+## Pruner delete races stage-cache reuse
+
+**Found in:** Epic 6 Slice A (pruner, `backend/app/worker/pruner.py`)
+
+`prune()` computes `disposable_storage_keys` and deletes each key's file in a
+separate step from marking its `artifacts` rows pruned
+(`store.mark_storage_keys_pruned`), all under the maintenance advisory lock —
+but the advisory lock only serializes against *other prune runs*, not against
+a worker concurrently running a pipeline stage. A worker's `_obtain` reads a
+`stage_cache` entry, finds `ctx.storage.exists(a.storage_key)` true, and
+reuses that key (creating a new `artifacts` row pointing at it, see
+`docs/PERSISTENCE.md` §6) with no lock held between that existence check and
+its own later `commit_stage`. If the pruner's disposability query ran (and
+found that key disposable under the *old* set of referencing rows) just
+before the worker's cache hit, and the pruner's `storage.delete(key)` for that
+key executes after the worker's existence check but before the worker's
+`commit_stage`, the worker's new row ends up pointing at a file that no longer
+exists — a silent loss of the reused artifact, not caught until something
+later tries to read it (e.g. `GET /api/projects/{id}/audio/{stem}`, which does
+check `storage.exists` and would correctly 410, or the next pipeline stage
+reading the file, which would error).
+
+**Fix would involve:** re-checking each key's disposability inside the same
+transaction (or under the same lock) as its delete, so a worker's
+cache-hit-driven new row is guaranteed to be visible to the disposability
+check before the file can be removed — e.g. moving the existence-check-and-
+claim into one transaction, or having the pruner re-verify disposability
+immediately before each individual `storage.delete` call rather than only
+once at the start of the run.
+
+**Deferred:** narrow race window (requires a prune run and a cache-hit stage
+claim on the same key to interleave within the run), no reproduction yet —
+recorded per Epic 6 Slice A wrap-up so it isn't lost before Slice B/C's
+production hardening work picks it up.
+
+---
+
+## Pruner can leak files of projects deleted during a prune or a running job
+
+**Found in:** Epic 6 Slice A final review
+
+Two ways a soft-deleted project's files outlive its rows:
+
+1. `prune()` (`backend/app/worker/pruner.py`) takes its disposable keys from
+   `disposable_storage_keys` and only later calls `purge_deleted_projects`.
+   A project soft-deleted between those two calls has its rows (including
+   its `artifacts` rows) purged, but its files were never in the disposable
+   set, so they stay on disk with nothing referencing them.
+2. The runner checks for deletion only once, before the first stage
+   (`process_job` in `backend/app/pipeline/runner.py`). A job whose project is
+   deleted while it runs keeps processing, and can write stage files after
+   the pruner has already purged the project's rows, again leaving files no
+   row points at.
+
+**Fix would involve:** taking a purge snapshot time before the disposable
+query and purging only projects deleted before it (so every purged project's
+files were in that run's disposable set), plus a deletion check in the
+runner's `_checkpoint` so a job stops (and fails as "Project was deleted")
+between stages once its project is gone.
+
+**Deferred:** needs a delete to land inside a prune run or a running job;
+the orphaned files are invisible to users and only cost disk space.
+Recorded with the related "Orphaned stage files" entry so storage growth
+isn't mis-diagnosed.
+
+---
+
+## `job.error` can contain absolute filesystem paths
+
+**Found in:** Epic 6 Slice A final review
+
+`_handle_failure` (`backend/app/pipeline/runner.py`) stores the engine's
+message as the job's `error`, and `GET /api/projects/{id}` returns it. Some
+engine messages carry absolute paths: Demucs's stderr
+(`StemSeparationError("Demucs failed: ...")`), the DrumScript runner-missing
+message, and the text of a `FileNotFoundError` or similar OS error wrapped as
+"Unexpected error: ...". That breaks the "the API never returns absolute
+filesystem paths" constraint.
+
+**Fix would involve:** sanitizing the message before it is stored or
+returned (replace `STORAGE_ROOT`, the staging directory and other absolute
+paths with relative keys or a placeholder, and cap the length), keeping the
+unsanitized text in the worker log for diagnostics.
+
+**Deferred:** the API is single-user and privately deployed in v1 (see "No
+authentication"); must be fixed before the API is exposed more widely.
+
+---
+
+## "← All projects" link drops unsaved score edits without a warning
+
+**Found in:** Epic 6 Slice A final review
+
+The project page (`frontend/app/projects/[id]/page.tsx`) links back to the
+library with a Next `<Link>`. The unsaved-changes warning is a
+`beforeunload` handler, which only fires for full page unloads (reload,
+closing the tab, typing a URL), not for client-side navigation, so clicking
+the link discards unsaved edits silently.
+
+**Fix would involve:** a navigation guard for client-side navigation while
+the score is dirty (intercepting the link click and asking for confirmation,
+or disabling/relabelling the link while there are unsaved changes).
+
+**Deferred:** Save and Ctrl/Cmd+S are explicit and the unsaved indicator is
+visible; recorded for the next frontend pass.
+
+---
+
+## Retry backoff shows a stale "in progress" label and hides the error
+
+**Found in:** Epic 6 Slice A final review
+
+While a job waits out a transient-error backoff (`schedule_retry` keeps its
+last in-progress status and sets `error` and a future `available_at`),
+`ProjectView.tsx` shows the status label for that last in-progress status
+(e.g. "Separating drum stems...") and only shows `job.error` once the job is
+`failed`. The user sees what looks like live progress, with no hint that the
+stage failed and will be retried.
+
+**Fix would involve:** returning `available_at` (or a derived "retrying at"
+field) in the job summary and showing "Retrying after an error: ..." with the
+error while `error` is set on a non-terminal job.
+
+**Deferred:** cosmetic; the job does recover (or fail visibly) on its own.
+
+---
+
+## A worker that lost its lease can overwrite the new owner's stage file
+
+**Found in:** Epic 6 Slice A final review
+
+In `_obtain` (`backend/app/pipeline/runner.py`), `storage.put` (and, for the
+extract stage, `set_project_title`) runs before `commit_stage` checks the
+lease. Storage keys are deterministic per job
+(`projects/<project_id>/<job_id>/<file>`), so a worker whose lease has
+already passed to another worker can still rename its output over the file
+the new owner wrote or committed for the same stage, before its own
+`commit_stage` raises `LeaseLostError`.
+
+**Fix would involve:** checking the lease immediately before `storage.put`
+(still racy, but narrower), or making keys unique per attempt (e.g. include
+the claim's attempt number or a random suffix) so two owners never write the
+same key and the committed row always points at the committing owner's file.
+
+**Deferred:** self-limited: the stale worker's heartbeat sets `lost` and it
+abandons at its next checkpoint, both owners run the same deterministic
+engines on the same input, and a lease is only lost after a stall longer than
+`LEASE_SECONDS`.
+
+---
+
+## Engine subprocess output is decoded with the Windows code page
+
+**Found in:** Epic 6 Slice A manual restart-survival check (pre-existing since MVP-004)
+
+`DemucsStemSeparator.separate` (`backend/app/demucs_stem_separator.py`) and
+the DrumScript runner call (`backend/app/drumscript_transcriber.py`) run
+`subprocess.run(..., capture_output=True, text=True)` without an `encoding`,
+so on Windows the child's output is decoded with the locale code page
+(cp1252). Demucs's progress output contains bytes cp1252 cannot decode
+(e.g. `0x8d`), so `subprocess`'s reader thread dies with a
+`UnicodeDecodeError` traceback in the worker log on every separation. When
+the stage succeeds this is only noise, but the failed stream's captured
+value comes back as `None`: if Demucs exits non-zero, `result.stderr.strip()`
+raises `AttributeError`, the real Demucs error text is lost, and the job is
+classified as an unexpected (transient) error instead of a permanent
+`StemSeparationError`.
+
+**Fix would involve:** passing `encoding="utf-8", errors="replace"` to both
+engine `subprocess.run` calls (or sharing it via `detached_process_kwargs` in
+`backend/app/engine_process.py`), plus a test that feeds non-UTF-8/non-cp1252
+bytes through a fake engine's stderr and asserts the failure message
+survives.
+
+**Deferred:** successful runs are unaffected; only the diagnostics of a
+failing Demucs/DrumScript run are lost.

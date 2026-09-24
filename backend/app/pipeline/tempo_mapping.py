@@ -26,7 +26,7 @@ def map_tempo(
 ) -> TempoMappingResult:
     """Estimates tempo, detects beats and assigns each event a musical
     position anchored to the real beats. Source timestamps are never
-    changed. (Moved unchanged from job_processor.run_tempo_mapping.)"""
+    changed."""
     bpm = tempo_estimator.estimate(drums_path)
     beats = beat_detector.detect(drums_path)
 

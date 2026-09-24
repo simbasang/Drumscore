@@ -147,6 +147,105 @@ class InMemoryStore:
             raise LeaseLostError(job_id)
         return job
 
+    def extend_lease(self, job_id, owner, lease_seconds, now):
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None or job.lease_owner != owner:
+                return False
+            self._jobs[job_id] = dataclasses.replace(
+                job, lease_expires_at=now + timedelta(seconds=lease_seconds), updated_at=now
+            )
+            return True
+
+    def release_lease(self, job_id, owner, now):
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None or job.lease_owner != owner:
+                return
+            self._jobs[job_id] = dataclasses.replace(
+                job, lease_owner=None, lease_expires_at=None, available_at=now, updated_at=now
+            )
+
+    def set_job_status(self, job_id, owner, status, now):
+        with self._lock:
+            job = self._owned(job_id, owner)
+            self._jobs[job_id] = dataclasses.replace(job, status=status, updated_at=now)
+
+    def commit_stage(self, job_id, owner, status, artifacts: Sequence[NewArtifact], cache_entry, now):
+        with self._lock:
+            job = self._owned(job_id, owner)
+            created = [
+                Artifact(
+                    id=new_id(),
+                    project_id=job.project_id,
+                    job_id=job.id,
+                    kind=a.kind,
+                    storage_key=a.storage_key,
+                    size_bytes=a.size_bytes,
+                    sha256=a.sha256,
+                    created_at=now,
+                )
+                for a in artifacts
+            ]
+            for artifact in created:
+                self._artifacts[artifact.id] = artifact
+            if cache_entry is not None:
+                self._cache[(cache_entry.source_key, cache_entry.stage, cache_entry.pipeline_version)] = cache_entry
+            self._jobs[job_id] = dataclasses.replace(job, status=status, updated_at=now)
+            return created
+
+    def fail_job(self, job_id, owner, error, now):
+        with self._lock:
+            job = self._owned(job_id, owner)
+            self._jobs[job_id] = dataclasses.replace(
+                job,
+                status=JobStatus.FAILED,
+                error=error,
+                lease_owner=None,
+                lease_expires_at=None,
+                finished_at=now,
+                updated_at=now,
+            )
+
+    def schedule_retry(self, job_id, owner, error, available_at, now):
+        with self._lock:
+            job = self._owned(job_id, owner)
+            self._jobs[job_id] = dataclasses.replace(
+                job, error=error, available_at=available_at, lease_owner=None, lease_expires_at=None, updated_at=now
+            )
+
+    def requeue_failed_job(self, job_id, now):
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None or job.status != JobStatus.FAILED:
+                return None
+            requeued = dataclasses.replace(
+                job,
+                status=JobStatus.QUEUED,
+                attempts=0,
+                error=None,
+                available_at=now,
+                lease_owner=None,
+                lease_expires_at=None,
+                finished_at=None,
+                updated_at=now,
+            )
+            self._jobs[job_id] = requeued
+            return requeued
+
+    # --- artifacts / cache ------------------------------------------------
+    def artifacts_for_job(self, job_id):
+        with self._lock:
+            by_kind: dict[ArtifactKind, Artifact] = {}
+            for artifact in sorted(self._artifacts.values(), key=lambda a: a.created_at):
+                if artifact.job_id == job_id:
+                    by_kind[artifact.kind] = artifact
+            return by_kind
+
+    def get_cache_entry(self, source_key, stage, pipeline_version):
+        with self._lock:
+            return self._cache.get((source_key, stage, pipeline_version))
+
     def complete_job(self, job_id, owner, analysis: NewAnalysis, now):
         with self._lock:
             job = self._owned(job_id, owner)

@@ -2,7 +2,16 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.persistence.models import JobStatus, NewAnalysis, ScoreVersionConflictError
+from app.persistence.models import (
+    ArtifactKind,
+    CacheEntry,
+    JobStatus,
+    LeaseLostError,
+    NewAnalysis,
+    NewArtifact,
+    ScoreVersionConflictError,
+    Stage,
+)
 from app.timing import BeatPoint, TempoMap
 from app.transcription import DrumEvent, DrumInstrument
 
@@ -170,3 +179,175 @@ def test_first_save_with_a_base_version_conflicts(store):
         store.save_score(project.id, analysis.id, {"measures": []}, 3, NOW)
 
     assert error.value.latest_version is None
+
+
+def descriptor(kind=ArtifactKind.SOURCE_AUDIO, key="projects/p/j/source.wav"):
+    return NewArtifact(kind=kind, storage_key=key, size_bytes=4, sha256="deadbeef")
+
+
+def test_claim_takes_oldest_available_job_and_starts_a_lease(store):
+    _, first = create(store, key="youtube:a", now=NOW)
+    create(store, key="youtube:b", now=NOW + timedelta(seconds=1))
+
+    claimed = store.claim_next_job(OWNER, LEASE, NOW + timedelta(seconds=2))
+
+    assert claimed.id == first.id
+    assert claimed.lease_owner == OWNER
+    assert claimed.lease_expires_at == NOW + timedelta(seconds=2 + LEASE)
+    assert claimed.attempts == 1
+    assert store.get_job(first.id) == claimed
+
+
+def test_claim_skips_leased_future_and_terminal_jobs(store):
+    _, leased = create(store, key="youtube:a")
+    store.claim_next_job(OWNER, LEASE, NOW)
+    _, later = create(store, key="youtube:b")
+    store.claim_next_job("other", LEASE, NOW)
+    store.schedule_retry(later.id, "other", "boom", NOW + timedelta(minutes=5), NOW)
+    _, done = create(store, key="youtube:c")
+    complete(store, done.id)
+
+    assert store.claim_next_job("third", LEASE, NOW + timedelta(seconds=1)) is None
+
+
+def test_expired_lease_can_be_reclaimed_by_another_worker(store):
+    _, job = create(store)
+    store.claim_next_job(OWNER, LEASE, NOW)
+
+    reclaimed = store.claim_next_job("worker-b", LEASE, NOW + timedelta(seconds=LEASE + 1))
+
+    assert reclaimed.id == job.id
+    assert reclaimed.lease_owner == "worker-b"
+    assert reclaimed.attempts == 2
+
+
+def test_extend_lease_only_for_current_owner(store):
+    _, job = create(store)
+    store.claim_next_job(OWNER, LEASE, NOW)
+
+    extended = store.extend_lease(job.id, OWNER, LEASE, NOW + timedelta(seconds=60))
+    stolen = store.extend_lease(job.id, "intruder", LEASE, NOW + timedelta(seconds=60))
+
+    assert extended is True
+    assert stolen is False
+    assert store.get_job(job.id).lease_expires_at == NOW + timedelta(seconds=60 + LEASE)
+
+
+def test_release_lease_makes_job_claimable_immediately(store):
+    _, job = create(store)
+    store.claim_next_job(OWNER, LEASE, NOW)
+
+    store.release_lease(job.id, OWNER, NOW + timedelta(seconds=1))
+
+    released = store.get_job(job.id)
+    assert released.lease_owner is None
+    assert released.lease_expires_at is None
+    assert store.claim_next_job("worker-b", LEASE, NOW + timedelta(seconds=1)).id == job.id
+
+
+def test_mutations_by_non_owner_raise_lease_lost(store):
+    _, job = create(store)
+    store.claim_next_job(OWNER, LEASE, NOW)
+
+    with pytest.raises(LeaseLostError):
+        store.set_job_status(job.id, "intruder", JobStatus.DOWNLOADING, NOW)
+    with pytest.raises(LeaseLostError):
+        store.commit_stage(job.id, "intruder", JobStatus.DOWNLOADED, [descriptor()], None, NOW)
+    with pytest.raises(LeaseLostError):
+        store.complete_job(job.id, "intruder", sample_analysis(), NOW)
+    with pytest.raises(LeaseLostError):
+        store.fail_job(job.id, "intruder", "x", NOW)
+    with pytest.raises(LeaseLostError):
+        store.schedule_retry(job.id, "intruder", "x", NOW, NOW)
+
+
+def test_set_job_status_updates_status(store):
+    _, job = create(store)
+    store.claim_next_job(OWNER, LEASE, NOW)
+
+    store.set_job_status(job.id, OWNER, JobStatus.DOWNLOADING, NOW + timedelta(seconds=1))
+
+    updated = store.get_job(job.id)
+    assert updated.status == JobStatus.DOWNLOADING
+    assert updated.updated_at == NOW + timedelta(seconds=1)
+
+
+def test_commit_stage_records_artifacts_status_and_cache_atomically(store):
+    project, job = create(store)
+    store.claim_next_job(OWNER, LEASE, NOW)
+    drums = descriptor(ArtifactKind.DRUMS_STEM, "projects/p/j/drums.wav")
+    accompaniment = descriptor(ArtifactKind.ACCOMPANIMENT_STEM, "projects/p/j/accompaniment.wav")
+    entry = CacheEntry(source_key="youtube:abc", stage=Stage.SEPARATE, pipeline_version="1", artifacts=(drums, accompaniment))
+
+    created = store.commit_stage(job.id, OWNER, JobStatus.STEMS_SEPARATED, [drums, accompaniment], entry, NOW)
+
+    assert store.get_job(job.id).status == JobStatus.STEMS_SEPARATED
+    by_kind = store.artifacts_for_job(job.id)
+    assert set(by_kind) == {ArtifactKind.DRUMS_STEM, ArtifactKind.ACCOMPANIMENT_STEM}
+    assert by_kind[ArtifactKind.DRUMS_STEM].storage_key == "projects/p/j/drums.wav"
+    assert by_kind[ArtifactKind.DRUMS_STEM].project_id == project.id
+    assert by_kind[ArtifactKind.DRUMS_STEM].pruned_at is None
+    assert {a.id for a in created} == {a.id for a in by_kind.values()}
+    assert store.get_cache_entry("youtube:abc", Stage.SEPARATE, "1") == entry
+    assert store.get_cache_entry("youtube:abc", Stage.SEPARATE, "2") is None
+
+
+def test_commit_stage_failure_leaves_no_partial_state(store):
+    _, job = create(store)
+    store.claim_next_job(OWNER, LEASE, NOW)
+    store.claim_next_job("worker-b", LEASE, NOW + timedelta(seconds=LEASE + 1))
+
+    with pytest.raises(LeaseLostError):
+        store.commit_stage(job.id, OWNER, JobStatus.DOWNLOADED, [descriptor()], None, NOW)
+
+    assert store.artifacts_for_job(job.id) == {}
+
+
+def test_fail_job_is_terminal_and_clears_lease(store):
+    _, job = create(store)
+    store.claim_next_job(OWNER, LEASE, NOW)
+
+    store.fail_job(job.id, OWNER, "video unavailable", NOW + timedelta(seconds=3))
+
+    failed = store.get_job(job.id)
+    assert failed.status == JobStatus.FAILED
+    assert failed.error == "video unavailable"
+    assert failed.finished_at == NOW + timedelta(seconds=3)
+    assert failed.lease_owner is None
+    assert store.claim_next_job(OWNER, LEASE, NOW + timedelta(hours=1)) is None
+
+
+def test_schedule_retry_delays_job_and_keeps_it_non_terminal(store):
+    _, job = create(store)
+    store.claim_next_job(OWNER, LEASE, NOW)
+    store.set_job_status(job.id, OWNER, JobStatus.SEPARATING_STEMS, NOW)
+
+    store.schedule_retry(job.id, OWNER, "Unexpected error: oom", NOW + timedelta(seconds=30), NOW)
+
+    retried = store.get_job(job.id)
+    assert retried.status == JobStatus.SEPARATING_STEMS
+    assert retried.error == "Unexpected error: oom"
+    assert retried.lease_owner is None
+    assert store.claim_next_job(OWNER, LEASE, NOW + timedelta(seconds=29)) is None
+    assert store.claim_next_job(OWNER, LEASE, NOW + timedelta(seconds=30)).id == job.id
+
+
+def test_requeue_failed_job_resets_attempts_and_error(store):
+    _, job = create(store)
+    store.claim_next_job(OWNER, LEASE, NOW)
+    store.fail_job(job.id, OWNER, "boom", NOW)
+
+    requeued = store.requeue_failed_job(job.id, NOW + timedelta(minutes=1))
+
+    assert requeued.status == JobStatus.QUEUED
+    assert requeued.attempts == 0
+    assert requeued.error is None
+    assert requeued.finished_at is None
+    assert requeued.available_at == NOW + timedelta(minutes=1)
+
+
+def test_requeue_ignores_non_failed_and_unknown_jobs(store):
+    _, job = create(store)
+
+    assert store.requeue_failed_job(job.id, NOW) is None
+    assert store.requeue_failed_job("00000000-0000-0000-0000-000000000000", NOW) is None

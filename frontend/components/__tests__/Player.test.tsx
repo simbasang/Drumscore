@@ -753,19 +753,11 @@ describe("Player", () => {
 });
 
 describe("Player saving", () => {
-  // This describe is a sibling of describe("Player", ...) above, not nested
-  // inside it, so it does not inherit that block's beforeEach - set up the
-  // same audio-resolves-successfully default here rather than relying on
-  // the other describe's last beforeEach run leaking into this one.
   beforeEach(() => {
     jest.clearAllMocks();
     (loadAudioBuffer as jest.Mock).mockResolvedValue({ duration: 30 });
   });
 
-  // Player renders only "Loading audio..." until its audio load effect
-  // resolves, so every test below must wait for that before it can see the
-  // Save button/controls - awaiting the Save button's appearance (present
-  // whenever onSave is given) is the simplest reliable readiness signal.
   async function renderWithSave(onSave = jest.fn().mockResolvedValue(undefined), onReloadRequested = jest.fn()) {
     render(
       <Player

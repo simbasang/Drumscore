@@ -484,6 +484,43 @@ def test_concurrent_claims_hand_a_job_to_exactly_one_worker(postgres_store):
     assert len([r for r in results if r is not None]) == 1
 
 
+def test_count_active_jobs_ignores_terminal_jobs_and_deleted_projects(store):
+    _, done = create(store, key="youtube:done", now=NOW)
+    complete(store, done.id)
+    create(store, key="youtube:failed", now=NOW + timedelta(seconds=1))
+    failing = store.claim_next_job(OWNER, LEASE, NOW + timedelta(seconds=1))
+    store.fail_job(failing.id, OWNER, "boom", NOW + timedelta(seconds=1))
+    create(store, key="youtube:running", now=NOW + timedelta(seconds=2))
+    store.claim_next_job(OWNER, LEASE, NOW + timedelta(seconds=2))
+    create(store, key="youtube:queued", now=NOW + timedelta(seconds=3))
+    deleted, _ = create(store, key="youtube:deleted", now=NOW + timedelta(seconds=4))
+    store.soft_delete_project(deleted.id, NOW + timedelta(seconds=4))
+
+    count = store.count_active_jobs()
+
+    assert count == 2
+
+
+def test_count_active_jobs_is_zero_for_an_empty_store(store):
+    assert store.count_active_jobs() == 0
+
+
+def test_live_artifact_bytes_counts_each_key_once_and_skips_pruned(store):
+    _, first = create(store, key="youtube:a")
+    run_stage(store, first.id, [descriptor(ArtifactKind.DRUMS_STEM, "shared/drums.wav"), descriptor(ArtifactKind.SOURCE_AUDIO, "a/source.wav")])
+    _, second = create(store, key="youtube:b")
+    run_stage(store, second.id, [descriptor(ArtifactKind.DRUMS_STEM, "shared/drums.wav"), descriptor(ArtifactKind.SOURCE_AUDIO, "b/source.wav")])
+    store.mark_storage_keys_pruned({"b/source.wav"}, NOW)
+
+    total = store.live_artifact_bytes()
+
+    assert total == 8
+
+
+def test_live_artifact_bytes_is_zero_for_an_empty_store(store):
+    assert store.live_artifact_bytes() == 0
+
+
 @pytest.mark.integration
 def test_concurrent_saves_from_same_base_version_conflict(postgres_store):
     project, job = create(postgres_store)

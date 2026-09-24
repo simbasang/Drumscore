@@ -6,10 +6,14 @@ from app.worker.factory import build_worker, default_engines
 from app.youtube_audio_extractor import YtDlpAudioExtractor
 
 
-def test_default_engines_use_production_adapters():
-    engines = default_engines()
+def test_default_engines_use_production_adapters_with_configured_limits():
+    settings = Settings(_env_file=None, max_source_duration_seconds=60, max_download_bytes=1000)
+
+    engines = default_engines(settings)
 
     assert isinstance(engines.extractor, YtDlpAudioExtractor)
+    assert engines.extractor.max_duration_seconds == 60
+    assert engines.extractor.max_download_bytes == 1000
     assert isinstance(engines.separator, DemucsStemSeparator)
 
 

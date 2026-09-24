@@ -1,12 +1,17 @@
 import logging
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 from app.audio_extraction import AudioExtractor
 from app.beat_detection import BeatDetector
 from app.media_source import MediaSourceValidator
+from app.observability.logging import log_event
+from app.observability.redaction import sanitize_error_message
 from app.persistence.models import (
     Artifact,
     ArtifactKind,
@@ -40,6 +45,8 @@ _FILENAMES = {
 
 StageOutputs = list[tuple[ArtifactKind, Path]]
 
+JobOutcome = Literal["completed", "failed", "retry_scheduled"]
+
 
 @dataclass(frozen=True)
 class PipelineEngines:
@@ -60,6 +67,8 @@ class JobContext:
     retry_base_seconds: int
     clock: Callable[[], datetime]
     should_stop: Callable[[], bool] = field(default=lambda: False)
+    error_roots: tuple[tuple[Path, str], ...] = ()
+    monotonic: Callable[[], float] = time.monotonic
 
 
 class JobAbandoned(Exception):
@@ -68,16 +77,17 @@ class JobAbandoned(Exception):
     stages stay, the rest resumes on the next claim."""
 
 
-def process_job(job: Job, ctx: JobContext) -> None:
+def process_job(job: Job, ctx: JobContext) -> JobOutcome:
     """Runs every stage that has no committed output yet, then maps tempo
     and completes the job. Idempotent: each stage's output is written to
     storage and committed (with its cache entry and status) before the
     next stage starts, so re-running after any crash only redoes the stage
-    that was in flight."""
+    that was in flight. Returns how the attempt ended; abandonment and
+    lease loss are raised instead."""
     project = ctx.store.get_project(job.project_id)
     if project is None or project.deleted_at is not None:
         ctx.store.fail_job(job.id, ctx.owner, "Project was deleted", ctx.clock())
-        return
+        return "failed"
 
     try:
         _run_stages(job, project, ctx)
@@ -90,23 +100,47 @@ def process_job(job: Job, ctx: JobContext) -> None:
             # killed by the same signal) and says nothing about the input.
             logger.info("Job %s: stage ended with %r after a stop request; abandoning", job.id, error)
             raise JobAbandoned(job.id) from error
-        _handle_failure(job, ctx, error)
+        return _handle_failure(job, ctx, error)
+    return "completed"
 
 
-def _handle_failure(job: Job, ctx: JobContext, error: Exception) -> None:
+def _handle_failure(job: Job, ctx: JobContext, error: Exception) -> JobOutcome:
     now = ctx.clock()
     if is_permanent(error):
         logger.info("Job %s failed permanently: %s", job.id, error)
-        ctx.store.fail_job(job.id, ctx.owner, str(error), now)
-        return
+        ctx.store.fail_job(job.id, ctx.owner, sanitize_error_message(str(error), ctx.error_roots), now)
+        return "failed"
 
-    message = f"Unexpected error: {error}"
+    message = sanitize_error_message(f"Unexpected error: {error}", ctx.error_roots)
     logger.exception("Job %s crashed on attempt %d/%d", job.id, job.attempts, job.max_attempts)
     if job.attempts >= job.max_attempts:
         ctx.store.fail_job(job.id, ctx.owner, message, now)
-    else:
-        delay = backoff_seconds(job.attempts, ctx.retry_base_seconds)
-        ctx.store.schedule_retry(job.id, ctx.owner, message, now + timedelta(seconds=delay), now)
+        return "failed"
+    delay = backoff_seconds(job.attempts, ctx.retry_base_seconds)
+    ctx.store.schedule_retry(job.id, ctx.owner, message, now + timedelta(seconds=delay), now)
+    return "retry_scheduled"
+
+
+def _elapsed_ms(started: float, ctx: JobContext) -> int:
+    return round((ctx.monotonic() - started) * 1000)
+
+
+@contextmanager
+def _timed_stage(stage: str, ctx: JobContext) -> Iterator[None]:
+    started = ctx.monotonic()
+    log_event(logger, "stage_started", stage=stage)
+    try:
+        yield
+    except LeaseLostError:
+        raise
+    except Exception as error:
+        log_event(
+            logger, "stage_failed", logging.WARNING,
+            stage=stage, duration_ms=_elapsed_ms(started, ctx),
+            error_type=type(error).__name__, permanent=is_permanent(error),
+        )
+        raise
+    log_event(logger, "stage_finished", stage=stage, duration_ms=_elapsed_ms(started, ctx), outcome="ran")
 
 
 def _checkpoint(job: Job, ctx: JobContext) -> None:
@@ -161,16 +195,17 @@ def _obtain(
 ) -> dict[ArtifactKind, Artifact]:
     cached = _usable_cache_entry(stage, project, ctx)
     if cached is not None:
-        logger.info("Job %s reusing cached %s output", job.id, stage.value)
+        started = ctx.monotonic()
         created = ctx.store.commit_stage(job.id, ctx.owner, done, cached.artifacts, None, ctx.clock())
+        log_event(logger, "stage_finished", stage=stage.value, duration_ms=_elapsed_ms(started, ctx), outcome="cached")
         return {artifact.kind: artifact for artifact in created}
 
-    ctx.store.set_job_status(job.id, ctx.owner, running, ctx.clock())
-    logger.info("Job %s running stage %s", job.id, stage.value)
-    with ctx.storage.staging_dir() as staging:
-        descriptors = tuple(_store_output(job, kind, path, ctx) for kind, path in produce(staging))
-    entry = CacheEntry(source_key=project.source_key, stage=stage, pipeline_version=PIPELINE_VERSION, artifacts=descriptors)
-    created = ctx.store.commit_stage(job.id, ctx.owner, done, descriptors, entry, ctx.clock())
+    with _timed_stage(stage.value, ctx):
+        ctx.store.set_job_status(job.id, ctx.owner, running, ctx.clock())
+        with ctx.storage.staging_dir() as staging:
+            descriptors = tuple(_store_output(job, kind, path, ctx) for kind, path in produce(staging))
+        entry = CacheEntry(source_key=project.source_key, stage=stage, pipeline_version=PIPELINE_VERSION, artifacts=descriptors)
+        created = ctx.store.commit_stage(job.id, ctx.owner, done, descriptors, entry, ctx.clock())
     return {artifact.kind: artifact for artifact in created}
 
 
@@ -207,20 +242,21 @@ def _transcribe(drums: Artifact, ctx: JobContext, staging: Path) -> StageOutputs
 
 
 def _map_tempo_and_complete(job: Job, artifacts: dict[ArtifactKind, Artifact], ctx: JobContext) -> None:
-    ctx.store.set_job_status(job.id, ctx.owner, JobStatus.MAPPING_TEMPO, ctx.clock())
-    raw_events = events_from_json_bytes(ctx.storage.read_bytes(artifacts[ArtifactKind.RAW_TRANSCRIPTION].storage_key))
-    drums_path = ctx.storage.path(artifacts[ArtifactKind.DRUMS_STEM].storage_key)
-    result = map_tempo(drums_path, raw_events, ctx.engines.tempo_estimator, ctx.engines.beat_detector)
-    ctx.store.complete_job(
-        job.id,
-        ctx.owner,
-        NewAnalysis(
-            pipeline_version=PIPELINE_VERSION,
-            tempo_bpm=result.tempo_bpm,
-            tempo_map=result.tempo_map,
-            beats=result.beats,
-            events=result.events,
-            raw_events=raw_events,
-        ),
-        ctx.clock(),
-    )
+    with _timed_stage("map_tempo", ctx):
+        ctx.store.set_job_status(job.id, ctx.owner, JobStatus.MAPPING_TEMPO, ctx.clock())
+        raw_events = events_from_json_bytes(ctx.storage.read_bytes(artifacts[ArtifactKind.RAW_TRANSCRIPTION].storage_key))
+        drums_path = ctx.storage.path(artifacts[ArtifactKind.DRUMS_STEM].storage_key)
+        result = map_tempo(drums_path, raw_events, ctx.engines.tempo_estimator, ctx.engines.beat_detector)
+        ctx.store.complete_job(
+            job.id,
+            ctx.owner,
+            NewAnalysis(
+                pipeline_version=PIPELINE_VERSION,
+                tempo_bpm=result.tempo_bpm,
+                tempo_map=result.tempo_map,
+                beats=result.beats,
+                events=result.events,
+                raw_events=raw_events,
+            ),
+            ctx.clock(),
+        )

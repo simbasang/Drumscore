@@ -5,7 +5,7 @@ from app.config import get_settings
 from app.persistence.tables import metadata
 
 config = context.config
-database_url = config.get_main_option("sqlalchemy.url") or get_settings().database_url
+database_url = config.get_main_option("sqlalchemy.url") or get_settings().database_url.get_secret_value()
 
 
 def run_migrations_online() -> None:

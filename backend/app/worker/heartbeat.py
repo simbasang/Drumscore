@@ -1,3 +1,4 @@
+import contextvars
 import logging
 import threading
 from collections.abc import Callable
@@ -31,16 +32,23 @@ class LeaseHeartbeat:
         self._interval = interval_seconds
         self._clock = clock
         self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._run, daemon=True, name=f"heartbeat-{job_id}")
+        self._thread: threading.Thread | None = None
         self.lost = False
 
     def __enter__(self) -> "LeaseHeartbeat":
+        # Run the thread inside a copy of the caller's context so its log
+        # records carry the job's log context (job_id, correlation_id, ...).
+        context = contextvars.copy_context()
+        self._thread = threading.Thread(
+            target=context.run, args=(self._run,), daemon=True, name=f"heartbeat-{self._job_id}"
+        )
         self._thread.start()
         return self
 
     def __exit__(self, *exc_info: object) -> None:
         self._stop.set()
-        self._thread.join()
+        if self._thread is not None:
+            self._thread.join()
 
     def _run(self) -> None:
         while not self._stop.wait(self._interval):

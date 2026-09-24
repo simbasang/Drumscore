@@ -70,6 +70,8 @@ class DrumScriptTranscriber:
                     [str(runner_python), str(_RUNNER_SCRIPT), str(audio_path), str(events_path)],
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=_TIMEOUT_SECONDS,
                     **detached_process_kwargs(),
                 )

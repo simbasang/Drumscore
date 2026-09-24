@@ -114,6 +114,27 @@ class FakeBeatDetector:
         return list(self.beats)
 
 
+class FakeMonotonic:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def logged_events(caplog, event: str) -> list[dict]:
+    """Structured events (app.observability.logging.log_event) named
+    `event`, as {**bound context, **event fields}, in log order."""
+    return [
+        {**getattr(record, "context", {}), **getattr(record, "fields", {})}
+        for record in caplog.records
+        if record.getMessage() == event and hasattr(record, "fields")
+    ]
+
+
 def make_engines(**overrides):
     from app.pipeline.runner import PipelineEngines
     from app.youtube_source import YouTubeSourceValidator

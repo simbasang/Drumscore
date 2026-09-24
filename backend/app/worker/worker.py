@@ -3,13 +3,16 @@ import os
 import random
 import socket
 import threading
+import time
 import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta
 
 from app.clock import utc_now
 from app.config import Settings
-from app.persistence.models import LeaseLostError
+from app.observability.logging import log_context, log_event
+from app.observability.redaction import default_error_roots
+from app.persistence.models import Job, LeaseLostError
 from app.persistence.store import Store
 from app.pipeline.runner import JobAbandoned, JobContext, PipelineEngines, process_job
 from app.storage import ArtifactStorage
@@ -38,6 +41,7 @@ class Worker:
         clock: Callable[[], datetime] = utc_now,
         owner: str | None = None,
         jitter: Callable[[float, float], float] = random.uniform,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.store = store
         self.storage = storage
@@ -46,8 +50,10 @@ class Worker:
         self.owner = owner or default_owner()
         self._clock = clock
         self._jitter = jitter
+        self._monotonic = monotonic
         self._stop = threading.Event()
         self._next_prune_at: datetime | None = None
+        self._error_roots = default_error_roots(settings.storage_root)
 
     def stop(self) -> None:
         self._stop.set()
@@ -56,12 +62,18 @@ class Worker:
         job = self.store.claim_next_job(self.owner, self.settings.lease_seconds, self._clock())
         if job is None:
             return False
+        with log_context(job_id=job.id, correlation_id=job.correlation_id, project_id=job.project_id, worker=self.owner):
+            self._run_claimed(job)
+        return True
 
+    def _run_claimed(self, job: Job) -> None:
+        started = self._monotonic()
         # attempts only exceeds max_attempts here when the previous attempt
         # died without recording anything (killed process -> lease expiry).
         if job.attempts > job.max_attempts:
             self.store.fail_job(job.id, self.owner, job.error or "Exceeded maximum attempts", self._clock())
-            return True
+            self._log_finished("failed", started, job)
+            return
 
         logger.info("Worker %s claimed job %s (attempt %d)", self.owner, job.id, job.attempts)
         with LeaseHeartbeat(
@@ -75,16 +87,24 @@ class Worker:
                 retry_base_seconds=self.settings.retry_base_seconds,
                 clock=self._clock,
                 should_stop=lambda: self._stop.is_set() or heartbeat.lost,
+                error_roots=self._error_roots,
+                monotonic=self._monotonic,
             )
             try:
-                process_job(job, context)
+                outcome: str = process_job(job, context)
             except JobAbandoned:
                 if not heartbeat.lost:
                     self.store.release_lease(job.id, self.owner, self._clock())
                 logger.info("Worker %s abandoned job %s", self.owner, job.id)
+                outcome = "abandoned"
             except LeaseLostError:
                 logger.warning("Lost lease on job %s; another worker owns it now", job.id)
-        return True
+                outcome = "lease_lost"
+        self._log_finished(outcome, started, job)
+
+    def _log_finished(self, outcome: str, started: float, job: Job) -> None:
+        duration_ms = round((self._monotonic() - started) * 1000)
+        log_event(logger, "job_finished", outcome=outcome, duration_ms=duration_ms, attempt=job.attempts)
 
     def maybe_prune(self) -> None:
         now = self._clock()

@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AnalysisEvent, Beat, DrumInstrument } from "@/lib/api/types";
+import { audioUrl, ScoreConflictError } from "@/lib/api/projects";
 import { type DecodableAudioContext, loadAudioBuffer } from "@/lib/audio/loadAudioBuffer";
 import { PracticeTransport, type MetronomeContextLike } from "@/lib/audio/PracticeTransport";
 import { SyncedPlayer } from "@/lib/audio/SyncedPlayer";
@@ -15,10 +16,25 @@ const DrumScore = dynamic(() => import("@/components/DrumScore"), { ssr: false }
 
 interface PlayerProps {
   apiBaseUrl: string;
-  jobId: string;
+  projectId: string;
   events: AnalysisEvent[];
   beats?: Beat[];
   createAudioContext?: () => DecodableAudioContext;
+  initialScore?: Score | null;
+  onSave?: (score: Score) => Promise<void>;
+  onReloadRequested?: () => void;
+}
+
+type SaveState =
+  | { status: "idle" }
+  | { status: "saving" }
+  | { status: "saved" }
+  | { status: "error"; message: string; conflict: boolean };
+
+// jsdom cannot reload the page, so tests always pass their own handler.
+/* istanbul ignore next */
+function reloadPage(): void {
+  window.location.reload();
 }
 
 type LoadStatus = "loading" | "ready" | "error";
@@ -154,10 +170,13 @@ function collectHits(score: Score): { id: string; label: string }[] {
 
 export default function Player({
   apiBaseUrl,
-  jobId,
+  projectId,
   events,
   beats = [],
   createAudioContext = defaultCreateAudioContext,
+  initialScore = null,
+  onSave,
+  onReloadRequested = reloadPage,
 }: PlayerProps) {
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [isPlaying, setIsPlaying] = useState(false);
@@ -181,12 +200,63 @@ export default function Player({
   const contextRef = useRef<DecodableAudioContext | null>(null);
   const countInPendingRef = useRef(false);
 
-  const editor = useScoreEditor(events);
+  const editor = useScoreEditor(events, initialScore);
   // editor.score only changes identity on a real edit, but currentTime (and
   // therefore this component) re-renders ~60 times/second during playback -
   // without memoizing, every one of those re-renders would re-walk the
   // entire score's measures/slots/hits for no reason.
   const hits = useMemo(() => collectHits(editor.score), [editor.score]);
+
+  const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
+
+  const handleSave = useCallback(async () => {
+    if (!onSave || !editor.isDirty || saveState.status === "saving") {
+      return;
+    }
+    const snapshot = editor.score;
+    setSaveState({ status: "saving" });
+    try {
+      await onSave(snapshot);
+      editor.markSaved(snapshot);
+      setSaveState({ status: "saved" });
+    } catch (error) {
+      setSaveState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Save failed.",
+        conflict: error instanceof ScoreConflictError,
+      });
+    }
+  }, [editor, onSave, saveState.status]);
+
+  const handleSaveRef = useRef(handleSave);
+  useEffect(() => {
+    handleSaveRef.current = handleSave;
+  }, [handleSave]);
+
+  useEffect(() => {
+    if (!onSave) {
+      return;
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void handleSaveRef.current();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onSave]);
+
+  useEffect(() => {
+    if (!editor.isDirty) {
+      return;
+    }
+    function onBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [editor.isDirty]);
 
   // selectedHitId can go stale (point at a hit that no longer exists) after
   // undo/redo, or after an edit that removes/replaces the selected hit.
@@ -205,8 +275,8 @@ export default function Player({
         const context = createAudioContext();
         contextRef.current = context;
         const [drumsBuffer, accompanimentBuffer] = await Promise.all([
-          loadAudioBuffer(`${apiBaseUrl}/api/jobs/${jobId}/audio/drums`, context),
-          loadAudioBuffer(`${apiBaseUrl}/api/jobs/${jobId}/audio/accompaniment`, context),
+          loadAudioBuffer(audioUrl(apiBaseUrl, projectId, "drums"), context),
+          loadAudioBuffer(audioUrl(apiBaseUrl, projectId, "accompaniment"), context),
         ]);
 
         if (cancelled) {
@@ -219,7 +289,7 @@ export default function Player({
         setStatus("ready");
       } catch (error) {
         if (!cancelled) {
-          console.error(`[Player] failed to load audio for job ${jobId}:`, error);
+          console.error(`[Player] failed to load audio for project ${projectId}:`, error);
           setStatus("error");
         }
       }
@@ -236,7 +306,7 @@ export default function Player({
       contextRef.current?.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiBaseUrl, jobId]);
+  }, [apiBaseUrl, projectId]);
 
   function tick() {
     const transport = transportRef.current;
@@ -560,6 +630,29 @@ export default function Player({
           Redo
         </button>
       </div>
+      {onSave && (
+        <div aria-label="Save score" role="group">
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={!editor.isDirty || saveState.status === "saving"}
+          >
+            {saveState.status === "saving" ? "Saving..." : "Save"}
+          </button>
+          {editor.isDirty && <span>Unsaved changes</span>}
+          {!editor.isDirty && saveState.status === "saved" && <span>All changes saved</span>}
+          {saveState.status === "error" && (
+            <p role="alert">
+              {saveState.message}
+              {saveState.conflict && (
+                <button type="button" onClick={onReloadRequested}>
+                  Reload
+                </button>
+              )}
+            </p>
+          )}
+        </div>
+      )}
       <DrumScore score={editor.score} currentTime={currentTime} onSeek={seekTo} />
     </div>
   );

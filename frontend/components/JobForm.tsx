@@ -163,7 +163,7 @@ export default function JobForm({ apiBaseUrl }: JobFormProps) {
       {job && analysis && (
         <Player
           apiBaseUrl={apiBaseUrl}
-          jobId={job.id}
+          projectId={job.id}
           events={analysis.events}
           beats={analysis.beats}
         />

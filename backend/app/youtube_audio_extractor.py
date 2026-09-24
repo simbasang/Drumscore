@@ -2,7 +2,7 @@ from pathlib import Path
 
 import yt_dlp
 
-from app.audio_extraction import AudioExtractionError
+from app.audio_extraction import AudioExtractionError, ExtractedAudio
 from app.media_source import ParsedSource
 
 _TARGET_SAMPLE_RATE = "44100"
@@ -28,13 +28,13 @@ def _build_ydl_options(destination_dir: Path) -> dict:
 
 
 class YtDlpAudioExtractor:
-    def extract(self, source: ParsedSource, destination_dir: Path) -> Path:
+    def extract(self, source: ParsedSource, destination_dir: Path) -> ExtractedAudio:
         destination_dir.mkdir(parents=True, exist_ok=True)
         options = _build_ydl_options(destination_dir)
 
         try:
             with yt_dlp.YoutubeDL(options) as ydl:
-                ydl.download([source.url])
+                info = ydl.extract_info(source.url, download=True)
         except yt_dlp.utils.DownloadError as error:
             raise AudioExtractionError(f"Failed to download audio: {error}") from error
 
@@ -42,4 +42,5 @@ class YtDlpAudioExtractor:
         if not output_path.exists():
             raise AudioExtractionError("Audio extraction did not produce an output file")
 
-        return output_path
+        title = info.get("title") if isinstance(info, dict) else None
+        return ExtractedAudio(audio_path=output_path, title=title)

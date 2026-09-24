@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from app.audio_extraction import AudioExtractionError
+from app.audio_extraction import AudioExtractionError, ExtractedAudio
 from app.beat_detection import BeatDetectionError
 from app.job_processor import (
     PipelineConcurrencyLimiter,
@@ -30,7 +30,7 @@ def source():
 
 class FakeSuccessfulExtractor:
     def extract(self, source, destination_dir):
-        return destination_dir / "source.wav"
+        return ExtractedAudio(destination_dir / "source.wav")
 
 
 class FakeFailingExtractor:

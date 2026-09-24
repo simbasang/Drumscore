@@ -16,7 +16,7 @@ from app.api.jobs import (
     get_tempo_estimator,
     get_transcriber,
 )
-from app.audio_extraction import AudioExtractionError
+from app.audio_extraction import AudioExtractionError, ExtractedAudio
 from app.jobs import JobStore
 from app.main import app
 from app.stem_separation import SeparatedStems, StemSeparationError
@@ -32,7 +32,7 @@ class FakeAudioExtractor:
         destination_dir.mkdir(parents=True, exist_ok=True)
         path = destination_dir / "source.wav"
         path.write_bytes(b"fake wav data")
-        return path
+        return ExtractedAudio(path)
 
 
 class FailingAudioExtractor:

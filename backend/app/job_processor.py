@@ -39,7 +39,7 @@ def run_audio_extraction(
     store.update(job_id, status=JobStatus.DOWNLOADING)
 
     try:
-        audio_path = extractor.extract(source, storage_dir / job_id)
+        audio_path = extractor.extract(source, storage_dir / job_id).audio_path
     except AudioExtractionError as error:
         store.update(job_id, status=JobStatus.FAILED, error=str(error))
         return None

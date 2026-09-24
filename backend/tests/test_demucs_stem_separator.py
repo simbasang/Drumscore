@@ -45,6 +45,8 @@ def test_separate_invokes_demucs_with_two_stems_drums_flag(tmp_path):
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=600,
             **detached_process_kwargs(),
         )
@@ -98,4 +100,20 @@ def test_separate_raises_when_expected_output_files_are_missing(tmp_path):
         mock_run.return_value = _make_completed_process(returncode=0)
 
         with pytest.raises(StemSeparationError, match="did not produce"):
+            DemucsStemSeparator().separate(audio_path, tmp_path / "out")
+
+
+_FAILING_ENGINE = "import sys; sys.stderr.buffer.write(b'boom \\x8d\\x81 end'); sys.exit(1)"
+
+
+def test_failure_message_survives_undecodable_stderr_bytes(tmp_path):
+    audio_path = tmp_path / "source.wav"
+    audio_path.write_bytes(b"fake audio")
+    real_run = subprocess.run
+
+    def run_failing_engine(command, **kwargs):
+        return real_run([sys.executable, "-c", _FAILING_ENGINE], **kwargs)
+
+    with patch("app.demucs_stem_separator.subprocess.run", side_effect=run_failing_engine):
+        with pytest.raises(StemSeparationError, match="Demucs failed: boom .* end"):
             DemucsStemSeparator().separate(audio_path, tmp_path / "out")

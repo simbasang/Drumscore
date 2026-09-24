@@ -1,5 +1,6 @@
 import json
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -79,6 +80,8 @@ def test_transcribe_invokes_runner_script_with_audio_and_output_paths(tmp_path, 
         assert command[1] == str(_RUNNER_SCRIPT)
         assert command[2] == str(audio_path)
         assert kwargs["timeout"] == 600
+        assert kwargs["encoding"] == "utf-8"
+        assert kwargs["errors"] == "replace"
         assert detached_process_kwargs().items() <= kwargs.items()
 
 
@@ -153,3 +156,19 @@ def test_transcribe_sets_drumscript_as_provenance_and_leaves_confidence_null(tmp
     assert len(events) == 2
     assert all(e.provenance == "drumscript" for e in events)
     assert all(e.confidence is None for e in events)
+
+
+_FAILING_ENGINE = "import sys; sys.stderr.buffer.write(b'boom \\x8d\\x81 end'); sys.exit(1)"
+
+
+def test_failure_message_survives_undecodable_stderr_bytes(tmp_path, fake_runner_python):
+    audio_path = tmp_path / "drums.wav"
+    audio_path.write_bytes(b"fake audio")
+    real_run = subprocess.run
+
+    def run_failing_engine(command, **kwargs):
+        return real_run([sys.executable, "-c", _FAILING_ENGINE], **kwargs)
+
+    with patch("app.drumscript_transcriber.subprocess.run", side_effect=run_failing_engine):
+        with pytest.raises(TranscriptionError, match="Drum transcription failed: boom .* end"):
+            DrumScriptTranscriber().transcribe(audio_path)

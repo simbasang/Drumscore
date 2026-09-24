@@ -1,6 +1,8 @@
+import logging
 import time
 from datetime import timedelta
 
+from app.observability.logging import log_context
 from app.persistence.memory import InMemoryStore
 from app.worker.heartbeat import LeaseHeartbeat
 from tests.fakes import FakeClock
@@ -61,3 +63,17 @@ def test_heartbeat_survives_transient_store_errors():
 
     assert recovered
     assert heartbeat.lost is False
+
+
+def test_heartbeat_thread_logs_with_the_callers_context(caplog):
+    store, clock = InMemoryStore(), FakeClock()
+    job = claimed_job(store, clock)
+    clock.advance(301)
+    store.claim_next_job("thief", 300, clock())
+
+    with caplog.at_level(logging.WARNING, logger="app.worker.heartbeat"):
+        with log_context(job_id=job.id):
+            with LeaseHeartbeat(store, job.id, "w", 300, 0.01, clock=clock) as heartbeat:
+                wait_for(lambda: heartbeat.lost)
+
+    assert caplog.records[-1].context == {"job_id": job.id}

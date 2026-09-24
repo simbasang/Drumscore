@@ -12,7 +12,7 @@ from app.storage import LocalArtifactStorage
 from app.worker import worker as worker_module
 from app.worker.worker import Worker, default_owner
 from app.stem_separation import StemSeparationError
-from tests.fakes import FakeClock, FakeExtractor, FakeSeparator, make_engines
+from tests.fakes import FakeClock, FakeExtractor, FakeMonotonic, FakeSeparator, logged_events, make_engines
 
 
 def settings(**overrides):
@@ -33,10 +33,10 @@ def enqueue(store, clock):
     )
 
 
-def make_worker(store, storage, clock, engines=None, **setting_overrides):
+def make_worker(store, storage, clock, engines=None, monotonic=None, **setting_overrides):
     return Worker(
         store=store, storage=storage, engines=engines or make_engines(), settings=settings(**setting_overrides),
-        clock=clock, owner="w1", jitter=lambda low, high: 0.0,
+        clock=clock, owner="w1", jitter=lambda low, high: 0.0, monotonic=monotonic or FakeMonotonic(),
     )
 
 
@@ -270,3 +270,84 @@ def test_worker_stores_errors_without_its_storage_root(parts):
     worker.run_once()
 
     assert str(storage.root) not in store.get_job(job.id).error
+
+
+def test_job_logs_carry_job_and_correlation_ids(parts, caplog):
+    store, storage, clock = parts
+    project, job = enqueue(store, clock)
+
+    with caplog.at_level(logging.INFO):
+        make_worker(store, storage, clock).run_once()
+
+    stage_events = logged_events(caplog, "stage_finished")
+    assert stage_events
+    for event in stage_events:
+        assert event["job_id"] == job.id
+        assert event["correlation_id"] == job.correlation_id
+        assert event["project_id"] == project.id
+        assert event["worker"] == "w1"
+
+
+def test_completed_job_logs_job_finished_with_duration(parts, caplog):
+    store, storage, clock = parts
+    monotonic = FakeMonotonic()
+    _, job = enqueue(store, clock)
+    engines = make_engines(separator=FakeSeparator(on_call=lambda: monotonic.advance(3)))
+
+    with caplog.at_level(logging.INFO):
+        make_worker(store, storage, clock, engines, monotonic=monotonic).run_once()
+
+    assert logged_events(caplog, "job_finished") == [
+        {"job_id": job.id, "correlation_id": job.correlation_id, "project_id": job.project_id,
+         "worker": "w1", "outcome": "completed", "duration_ms": 3000, "attempt": 1}
+    ]
+
+
+def test_failed_job_logs_job_finished_failed(parts, caplog):
+    store, storage, clock = parts
+    enqueue(store, clock)
+    engines = make_engines(separator=FakeSeparator(error=StemSeparationError("bad")))
+
+    with caplog.at_level(logging.INFO):
+        make_worker(store, storage, clock, engines).run_once()
+
+    assert logged_events(caplog, "job_finished")[0]["outcome"] == "failed"
+
+
+def test_abandoned_job_logs_job_finished_abandoned(parts, caplog):
+    store, storage, clock = parts
+    enqueue(store, clock)
+    worker = make_worker(store, storage, clock)
+    engines = make_engines(extractor=FakeExtractor(on_call=worker.stop))
+    worker.engines = engines
+
+    with caplog.at_level(logging.INFO):
+        worker.run_once()
+
+    assert logged_events(caplog, "job_finished")[0]["outcome"] == "abandoned"
+
+
+def test_lease_lost_job_logs_job_finished_lease_lost(parts, caplog):
+    store, storage, clock = parts
+    _, job = enqueue(store, clock)
+
+    def steal():
+        store.claim_next_job("thief", 300, clock() + timedelta(days=1))
+
+    with caplog.at_level(logging.INFO):
+        make_worker(store, storage, clock, make_engines(extractor=FakeExtractor(on_call=steal))).run_once()
+
+    assert store.get_job(job.id).lease_owner == "thief"
+    assert logged_events(caplog, "job_finished")[0]["outcome"] == "lease_lost"
+
+
+def test_context_is_cleared_after_the_job(parts, caplog):
+    store, storage, clock = parts
+    enqueue(store, clock)
+    worker = make_worker(store, storage, clock)
+    worker.run_once()
+
+    with caplog.at_level(logging.INFO):
+        logging.getLogger("tests").info("after")
+
+    assert caplog.records[-1].context == {}

@@ -21,7 +21,7 @@ def _make_completed_process(returncode: int, stderr: str = ""):
 
 def _writes_events_file(events: list[dict]):
     def side_effect(command, **kwargs):
-        Path(command[-1]).write_text(json.dumps({"events": events}))
+        Path(command[3]).write_text(json.dumps({"events": events}))
         return _make_completed_process(returncode=0)
 
     return side_effect
@@ -83,6 +83,21 @@ def test_transcribe_invokes_runner_script_with_audio_and_output_paths(tmp_path, 
         assert kwargs["encoding"] == "utf-8"
         assert kwargs["errors"] == "replace"
         assert detached_process_kwargs().items() <= kwargs.items()
+
+
+def test_transcribe_gives_drumscript_a_scratch_output_dir_removed_afterwards(tmp_path):
+    audio_path = tmp_path / "stems" / "drums.wav"
+
+    with patch("app.drumscript_transcriber.subprocess.run") as mock_run:
+        mock_run.side_effect = _writes_events_file([])
+
+        DrumScriptTranscriber().transcribe(audio_path)
+
+    command = mock_run.call_args.args[0]
+    output_dir = Path(command[4])
+    assert output_dir.parent == Path(command[3]).parent
+    assert audio_path.parent not in output_dir.parents
+    assert not output_dir.parent.exists()
 
 
 def test_transcribe_raises_when_runner_exits_nonzero(tmp_path):

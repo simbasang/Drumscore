@@ -118,6 +118,14 @@ minutes because a Demucs stage on CPU can take minutes; after that Docker
 kills it and the job is reclaimed when its lease expires (one attempt used).
 `docker compose stop -t <seconds> worker` shortens the wait.
 
+**One-off cleanup when upgrading past V1-035:** earlier versions left
+DrumScript's side output (`drumscript_output/`, ~0.5 MB per processed job) in
+the storage volume, where the pruner never removes it. Delete it once:
+
+```bash
+docker compose -f deploy/docker-compose.yml exec worker   find /data/projects -type d -name drumscript_output -prune -exec rm -rf {} +
+```
+
 ## 7. Scaling
 
 More concurrent pipelines: raise `WORKER_CONCURRENCY`, or run more worker

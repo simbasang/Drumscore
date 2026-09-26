@@ -41,6 +41,23 @@ def test_keeps_every_other_beat_in_a_double_time_section():
     assert result == [0.5 * i for i in range(70)]
 
 
+def test_keeps_the_real_beats_of_a_double_time_intro_that_starts_off_the_beat():
+    intro = [0.25 * i for i in range(1, 18)]
+    steady = [4.5 + 0.5 * i for i in range(40)]
+
+    result = regularize_beats(intro + steady)
+
+    assert result == [0.5 * i for i in range(1, 49)]
+
+
+def test_drops_a_spurious_first_detection_just_before_the_first_beat():
+    beats = [1.8] + [2.0 + 0.5 * i for i in range(20)]
+
+    result = regularize_beats(beats)
+
+    assert result == [2.0 + 0.5 * i for i in range(20)]
+
+
 def test_fills_a_skipped_beat_with_an_interpolated_one():
     beats = [0.5 * i for i in range(20) if i != 9]
 

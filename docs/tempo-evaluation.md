@@ -64,9 +64,12 @@ Queen's drumless piano intro was tracked at the triplet level, and Rick
 Astley and Tears for Fears had isolated spurious beats, plus 1–2 skipped
 beats elsewhere. Quantization, measure numbering and the metronome all
 assume one entry per beat, so each glitch would shift every later bar.
-`app/beat_regularization.py` walks the detections at the song's typical
-period (drift of up to ±25% allowed), keeps the detection nearest each
-expected beat and divides gaps evenly. After it, irregular intervals
+`app/beat_regularization.py` starts from the first stable run of beats at
+the song's typical period and walks outward in both directions (drift of
+up to ±25% allowed). It keeps the detection nearest each expected beat and
+divides gaps evenly, so an intro tracked in double time can't set the
+phase. Share of our beats within 70 ms of a raw tracker beat: 100% on six
+songs, 98% Queen, 89% Tears for Fears; the rest are gap fills. After it, irregular intervals
 (<0.7× or >1.3×) are 0 on six songs, 3 on Tears for Fears and 10 on Queen.
 
 ## Downbeats (measure phase)

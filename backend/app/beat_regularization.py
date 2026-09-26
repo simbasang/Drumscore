@@ -12,6 +12,8 @@ _TOLERANCE = 0.3
 # metrical level.
 _MAX_DRIFT = 0.25
 _LOCAL_WINDOW = 8
+# Consecutive steady intervals that make a detection a trustworthy anchor.
+_ANCHOR_RUN = 4
 # Beat trackers report beats on a frame grid (Beat This!: 20 ms); spans of
 # several beats keep that quantization out of the typical period.
 _PERIOD_SPAN_BEATS = 4
@@ -30,27 +32,50 @@ def typical_beat_period(beat_times: Sequence[float]) -> float:
 def regularize_beats(beat_times: Sequence[float]) -> list[float]:
     """Turns a tracker's beat detections into exactly one entry per beat,
     which beat numbering, quantization and the metronome all assume.
-    Walks the detections at the song's typical period (allowed to drift
-    slowly), keeps the detection nearest each expected beat, drops extra
-    detections (spurious beats, double-time or triplet sections) and fills
-    skipped beats by evenly dividing the gap up to the next detection.
-    Kept detections keep their exact source times."""
+    Starts from a stable anchor (the first run of beats at the song's
+    typical period, so an intro tracked in double time or a spurious first
+    detection can't set the phase) and walks outward in both directions:
+    keeps the detection nearest each expected beat, drops extra detections
+    (spurious beats, double-time or triplet sections) and fills skipped
+    beats by evenly dividing the gap up to the next detection. Kept
+    detections keep their exact source times."""
     if len(beat_times) < 3:
         return list(beat_times)
     typical = typical_beat_period(beat_times)
     detections = [float(t) for t in beat_times]
+    anchor = _stable_anchor(detections, typical)
 
+    forward = _walk(detections[anchor:], typical)
+    backward = _walk([-t for t in reversed(detections[: anchor + 1])], typical)
+    return [-t for t in reversed(backward[1:])] + forward
+
+
+def _stable_anchor(detections: list[float], typical: float) -> int:
+    """Index of the first detection that starts _ANCHOR_RUN consecutive
+    intervals within tolerance of the typical period (0 if none does)."""
+    intervals = np.diff(detections)
+    steady = np.abs(intervals / typical - 1) <= _TOLERANCE
+    for index in range(len(steady) - _ANCHOR_RUN + 1):
+        if steady[index : index + _ANCHOR_RUN].all():
+            return index
+    return 0
+
+
+def _walk(detections: list[float], typical: float) -> list[float]:
+    """One entry per beat, walking forward from detections[0]."""
     result = [detections[0]]
     real_intervals: list[float] = []
     period = typical
     index = 1
     while index < len(detections):
         last = result[-1]
-        in_window = [
-            i
-            for i in range(index, len(detections))
-            if (1 - _TOLERANCE) * period <= detections[i] - last <= (1 + _TOLERANCE) * period
-        ]
+        in_window = []
+        for i in range(index, len(detections)):
+            gap = detections[i] - last
+            if gap > (1 + _TOLERANCE) * period:
+                break
+            if gap >= (1 - _TOLERANCE) * period:
+                in_window.append(i)
         if in_window:
             chosen = min(in_window, key=lambda i: abs(detections[i] - last - period))
             real_intervals.append(detections[chosen] - last)

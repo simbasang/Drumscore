@@ -46,7 +46,7 @@ One backend image runs the API, the workers and the one-shot migration step; a s
 Unit: timing math, quantization, score transformations, engraving decisions, transport calculations.
 Integration: adapters, API/job lifecycle, persistence, audio assets.
 Golden/reference: known event sequences -> score model; labelled clips -> transcription metrics; score fixtures -> engraving properties.
-E2E: submit -> process -> render -> play -> seek -> loop -> edit -> save -> reload.
+E2E: submit -> process -> render -> play -> seek -> loop -> edit -> save -> reload. Automated at the API level in `backend/tests/test_release_e2e.py`; the browser half is `docs/RELEASE_CHECKLIST.md`, with v1.0 results in `docs/RELEASE_REPORT_V1.md`.
 
 ## Migration
 Do not rewrite the MVP at once. Introduce new contracts beside old ones, migrate one boundary at a time, and remove legacy scalar-BPM/grid code only after tests prove the new path owns all consumers.

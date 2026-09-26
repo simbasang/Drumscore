@@ -33,12 +33,14 @@ When you add, resolve or move an entry, update the index too.
 | "← All projects" link drops unsaved score edits | frontend | deferred |
 | Retry backoff shows stale "in progress" label | frontend | deferred |
 | Worker that lost its lease can overwrite new owner's file | worker | deferred |
-| Epic 5's manual practice/correction test was never run | QA | deferred |
 | Admission limits are advisory under concurrent requests | API | deferred |
 | Import-time logging configuration leaks into caplog-based tests | tests | deferred |
 | Crash inside `Worker._run_claimed` during failure handling loses job context | worker | deferred |
 | No GPU image: Demucs/DrumScript run on CPU torch | deployment | deferred |
 | Deployment has no TLS/reverse proxy | deployment | deferred |
+| Every edit re-engraves the whole score synchronously | frontend | deferred |
+| `GET /score` 404 before first save logs a console error | frontend | deferred |
+| Purged projects leave empty storage directories | storage | deferred |
 
 ---
 
@@ -64,6 +66,11 @@ half/double the detected tempo fits the onset grid better) to
 **Further data point (V1-034 container verification):** a real ~113 BPM
 pop song (YouTube `dQw4w9WgXcQ`) produced `tempo_bpm` 57.4, a 0.5x octave
 error, so the ambiguity isn't only the 1.5x case.
+
+**Further data point (V1-035 release pass):** CCR "Have You Ever Seen the
+Rain" (`bO28lB1uwp4`) produced 229.7 BPM against 115 in a reference MIDI (a
+2x error), which put the notation, metronome and count-in on the wrong pulse.
+Release-blocking; tracked as #113.
 
 **Partially resolved (MVP-011):** `LibrosaTempoEstimator` now detects
 onsets and picks whichever of `tempo`, `tempo*2`, or `tempo/2` best
@@ -121,6 +128,12 @@ as-is, since it's a fundamental limitation of DrumScript's rule-based
 approach rather than something fixable within this task, per the
 options above.
 
+
+**Further data point (V1-035 release pass):** against a reference MIDI of
+CCR "Have You Ever Seen the Rain", DrumScript found 17 kicks where the
+reference has 263 (F1 0.01), snare F1 was at most 0.31 and merged hi-hat F1
+about 0.55 (`docs/RELEASE_REPORT_V1.md`). Kick detection is release-blocking;
+tracked as #114.
 ---
 
 ## No auto-scroll to follow the playhead during playback
@@ -651,34 +664,6 @@ engines on the same input, and a lease is only lost after a stall longer than
 
 ---
 
-## Epic 5's manual practice/correction test was never run
-
-**Found in:** GitHub cleanup after PR #109 (2026-09-24)
-
-PR #108 (Epic 5, V1-023..V1-028) was merged with the manual item in its
-test plan still unchecked: *generate a song, set an A/B loop, change speed,
-enable count-in and metronome, correct a hit, then undo and redo*. Epic 5
-(#32) and its issues #74-#79 are closed on the strength of the automated
-suites alone (frontend 253/253, backend 222/222 at merge time).
-
-That leaves a gap: the practice transport's Web Audio scheduling (loop
-restart, rate changes, metronome/count-in timing) and the correction
-editor's interaction with the rendered score have not been checked end to
-end in a real browser against real audio. Earlier epics showed that jsdom
-tests miss real-browser rendering and timing defects (see the V1-019 beam
-and V1-022 clipping findings).
-
-**Fix would involve:** running the manual scenario above against a real
-generated song in a browser, confirming stems stay in sync through loop,
-seek and rate changes, that metronome clicks and count-in land on the beat,
-and that edits and undo/redo update the score and playback correctly;
-filing issues for anything that fails.
-
-**Deferred:** do this before release, at the latest as part of V1-035
-(#86, v1.0 E2E, performance and release gate).
-
----
-
 ## Admission limits are advisory under concurrent requests
 
 **Found in:** V1-033 (#84)
@@ -781,3 +766,52 @@ network. `docs/DEPLOYMENT.md` §8 says so.
 **Fix would involve:** a TLS-terminating reverse proxy service (e.g. Caddy or
 Traefik) in the stack, serving frontend and API under one origin (which would
 also make CORS unnecessary), with the `PUBLIC_*` URLs pointing at it.
+
+## Every edit re-engraves the whole score synchronously
+
+**Found in:** V1-035 release pass
+
+Each editor operation (and each undo/redo) rebuilds and re-engraves the
+entire score in `DrumScore`, a 260-290 ms main-thread long task for a
+716-hit / ~90-measure song. Audio is unaffected (Web Audio runs off the main
+thread), but the playhead freezes for that long when editing during playback,
+and the cost grows with song length.
+
+**Fix would involve:** re-engraving only the rows whose measures changed
+(the timeline and row layout are already per-row), or moving layout off the
+critical path; measure with a long-task observer before and after.
+
+**Deferred:** editing normally happens while paused; no sync or data impact.
+
+---
+
+## `GET /score` 404 before first save logs a console error
+
+**Found in:** V1-035 release pass
+
+A project without a saved score answers `GET /api/projects/{id}/score` with
+404, which `ProjectView` handles correctly, but the browser still logs
+"Failed to load resource ... 404" on every project open. It adds noise when
+reading the console for real errors.
+
+**Fix would involve:** a 200 response with `null` score (a contract change to
+`SavedScoreResponse` and the frontend client), or accepting the noise.
+
+**Deferred:** cosmetic.
+
+---
+
+## Purged projects leave empty storage directories
+
+**Found in:** V1-035 release pass
+
+The pruner deletes a purged project's files by storage key but not the
+`projects/<project_id>/<job_id>/` directories that held them, so each purged
+project leaves a few KB of empty directories behind.
+
+**Fix would involve:** removing empty parent directories up to `projects/`
+after deleting a key in `LocalArtifactStorage.delete`.
+
+**Deferred:** negligible size; no functional impact.
+
+---

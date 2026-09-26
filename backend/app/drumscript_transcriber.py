@@ -64,10 +64,11 @@ class DrumScriptTranscriber:
 
         with tempfile.TemporaryDirectory() as scratch_dir:
             events_path = Path(scratch_dir) / "events.json"
+            drumscript_output_dir = Path(scratch_dir) / "drumscript_output"
 
             try:
                 result = subprocess.run(
-                    [str(runner), str(_RUNNER_SCRIPT), str(audio_path), str(events_path)],
+                    [str(runner), str(_RUNNER_SCRIPT), str(audio_path), str(events_path), str(drumscript_output_dir)],
                     capture_output=True,
                     text=True,
                     encoding="utf-8",

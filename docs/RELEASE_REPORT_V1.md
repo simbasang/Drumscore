@@ -87,7 +87,7 @@ during playback ✔.
    `test_drumscript_runner_script.py`; verified on the rebuilt stack (a new
    job stores only its four tracked artifacts). Existing deployments need a
    one-off cleanup (`docs/DEPLOYMENT.md` §6).
-2. **Tempo octave error (#113, release-blocking).** 229.7 vs 115 BPM on CCR,
+2. **Tempo octave error (#113, release-blocking; fixed in V1-036, see docs/tempo-evaluation.md: CCR now 116.5 BPM, 297 beats, beamed eighths; re-run the checklist).** 229.7 vs 115 BPM on CCR,
    57.4 vs ~113 on Rick Astley. Notation, metronome and count-in follow the
    wrong pulse.
 3. **Kick detection (#114, release-blocking).** Compared with the reference

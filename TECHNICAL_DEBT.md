@@ -13,7 +13,9 @@ When you add, resolve or move an entry, update the index too.
 
 | Entry | Area | Status |
 |---|---|---|
-| Tempo estimation disagrees with DrumScript's own estimate (1.5x case) | timing | partial |
+| Meter is hardcoded 4/4 (6/8, 12/8 notated as 4/4 sixteenths) | timing/notation | deferred |
+| Measure phase is one global choice (half-bar shifts) | timing | deferred |
+| TempoMap is a single typical tempo | timing | deferred |
 | Generated notation doesn't look/read quite right yet (classifier accuracy) | transcription | partial |
 | No auto-scroll to follow the playhead (vertical scroll) | player UI | partial |
 | Diagnostics `quantization_error_seconds` wrong after measure-shift | diagnostics | deferred |
@@ -44,44 +46,55 @@ When you add, resolve or move an entry, update the index too.
 
 ---
 
-## Tempo estimation disagrees with DrumScript's own estimate
+## Meter is hardcoded 4/4
 
-**Found in:** MVP-006 manual verification
+**Found in:** V1-036
 
-Our independent `LibrosaTempoEstimator` (used for beat/measure
-mapping) produced ~123 BPM on a test track, while DrumScript's own
-internal tempo estimate (visible in its transcription logs, not
-currently consumed by us) was ~184.6 BPM on similar material. `123 ×
-1.5 ≈ 184.6` — a classic pulse-level ambiguity (simple vs. compound
-meter interpretation of the same rhythm), not a bug in either
-estimator, but it means the two tempo values used across the pipeline
-can disagree.
+`BEATS_PER_MEASURE = 4` in `frontend/lib/score/grid.ts` and
+`DEFAULT_BEATS_PER_MEASURE = 4` in `app/beat_mapping.py`, with four
+sixteenth slots per beat. Beat This! finds the right pulse for 6/8 and
+12/8 songs (Queen's "We Are the Champions" at 64 dotted quarters, Tears
+for Fears' shuffle at 112), but the notation still writes them as 4/4
+sixteenths, and its 2-beats-per-bar downbeats are grouped in fours.
 
-**Fix would involve:** picking one tempo source consistently (or
-cross-validating both and preferring the one with higher confidence),
-and/or adding octave-error correction (e.g. checking whether
-half/double the detected tempo fits the onset grid better) to
-`LibrosaTempoEstimator`.
+**Fix would involve:** a meter on the analysis (from downbeat spacing),
+per-measure beat counts in the score model, and a triplet/compound
+subdivision grid in quantization and engraving.
 
-**Further data point (V1-034 container verification):** a real ~113 BPM
-pop song (YouTube `dQw4w9WgXcQ`) produced `tempo_bpm` 57.4, a 0.5x octave
-error, so the ambiguity isn't only the 1.5x case.
+---
 
-**Further data point (V1-035 release pass):** CCR "Have You Ever Seen the
-Rain" (`bO28lB1uwp4`) produced 229.7 BPM against 115 in a reference MIDI (a
-2x error), which put the notation, metronome and count-in on the wrong pulse.
-Release-blocking; tracked as #113.
+## Measure phase is one global choice
 
-**Partially resolved (MVP-011):** `LibrosaTempoEstimator` now detects
-onsets and picks whichever of `tempo`, `tempo*2`, or `tempo/2` best
-fits their positions, correcting the common case where a beat tracker
-reports exactly half or double the true tempo. This does **not** fix
-the specific case originally observed (123 vs. 184.6 BPM): that's a
-1.5x ratio (simple-vs-compound meter ambiguity), not a clean octave
-error, and isn't addressed by this heuristic. Fixing that specific
-case would still need cross-validating against DrumScript's own tempo
-estimate, which isn't currently piped through to the mapping step —
-left as further work, not done here.
+**Found in:** V1-036
+
+`beat_points_from_tracker` picks which beat is beat 1 by a majority vote
+over all the tracker's downbeats, and every measure has four beats. When
+the tracker hears 2-beat bars in a section or the song shifts by half a bar
+(an inserted 2/4 bar), bars after that point sit half a bar off. Share of
+tracker downbeats on our beat 1: CCR 100%, Billie Jean 89%, Rick Astley 60%,
+Tears for Fears 43% (docs/tempo-evaluation.md).
+
+**Fix would involve:** measures with variable beat counts in the score
+model and quantizer, then re-phasing per section where the tracker's
+downbeats move consistently.
+
+---
+
+## TempoMap is a single typical tempo
+
+**Found in:** V1-036 (formerly part of "Tempo estimation disagrees with
+DrumScript's own estimate")
+
+`map_tempo` stores `TempoMap.constant(tempo_bpm)`, the median tempo of the
+detected beats. Nothing consumes it for timing (quantization, the playhead
+and the metronome use the beats, which follow tempo changes), but a
+multi-point tempo map would be the natural source for a tempo display or
+export. Related: beat regularization forces tempo changes of more than ±25%
+of the typical tempo back to the typical metrical level.
+
+**Fix would involve:** building `TempoPoint`s from local beat periods
+(e.g. per measure), and letting regularization's allowed drift follow a
+detected tempo change instead of one typical period.
 
 ---
 

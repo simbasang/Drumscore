@@ -10,7 +10,8 @@ COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_INSTALL_DIR=/opt/python \
-    HF_HOME=/opt/huggingface
+    HF_HOME=/opt/huggingface \
+    TORCH_HOME=/opt/torch
 WORKDIR /app
 
 # Main environment (Python 3.13, the image's own interpreter).
@@ -27,6 +28,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Bake the Demucs model weights (Demucs 4.1 fetches them from Hugging Face)
 # into the image instead of downloading them on a worker's first job.
 RUN .venv/bin/python -c "from demucs.pretrained import get_model; get_model('htdemucs')"
+# Same for the Beat This! beat-tracking checkpoint (torch hub cache).
+RUN .venv/bin/python -c "from beat_this.inference import File2Beats; File2Beats(checkpoint_path='final0', device='cpu')"
 
 FROM python:3.13-slim-trixie
 RUN apt-get update \
@@ -40,6 +43,7 @@ RUN useradd --system --uid 10001 --create-home drumscore \
 
 COPY --from=build /opt/python /opt/python
 COPY --from=build /opt/huggingface /opt/huggingface
+COPY --from=build /opt/torch /opt/torch
 COPY --from=build /app/.venv /app/.venv
 COPY --from=build /app/drumscript_runner/.venv /app/drumscript_runner/.venv
 WORKDIR /app
@@ -49,6 +53,7 @@ ENV PATH=/app/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     HF_HOME=/opt/huggingface \
     HF_HUB_OFFLINE=1 \
+    TORCH_HOME=/opt/torch \
     NUMBA_CACHE_DIR=/tmp/numba \
     MPLCONFIGDIR=/tmp/matplotlib \
     STORAGE_ROOT=/data \

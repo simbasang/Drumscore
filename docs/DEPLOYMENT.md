@@ -25,10 +25,11 @@ The backend image contains everything the pipeline needs: ffmpeg, Deno
 (yt-dlp's JavaScript runtime) with `yt-dlp-ejs` (YouTube challenge solver
 scripts, installed as a package instead of downloaded at runtime), the main
 Python 3.13 environment, DrumScript's separate Python 3.12 environment, and
-the Demucs `htdemucs` weights, baked in at build time (`HF_HOME`,
-`HF_HUB_OFFLINE=1`). Workers download nothing at runtime except the songs
+the Demucs `htdemucs` weights and the Beat This! `final0` beat-tracking
+checkpoint (~78 MB), baked in at build time (`HF_HOME`, `HF_HUB_OFFLINE=1`,
+`TORCH_HOME=/opt/torch`). Workers download nothing at runtime except the songs
 themselves. Torch is the CPU build on Linux (see `backend/pyproject.toml`),
-so the backend image is ~5.6 GB (two ML environments of ~1.6 GB each)
+so the backend image is ~5.8 GB (two ML environments of ~1.6 GB each)
 instead of carrying several GB of CUDA libraries per environment; there is no GPU
 image (TECHNICAL_DEBT.md).
 

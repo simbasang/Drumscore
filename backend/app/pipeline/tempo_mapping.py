@@ -4,8 +4,8 @@ from pathlib import Path
 
 from app.beat_detection import BeatDetector
 from app.beat_mapping import quantize_events_with_beats
+from app.beat_this_beat_detector import tempo_from_beats
 from app.pipeline.errors import InsufficientBeatsError
-from app.tempo_estimation import TempoEstimator
 from app.timing import BeatPoint, TempoMap
 from app.transcription import DrumEvent
 
@@ -20,15 +20,15 @@ class TempoMappingResult:
 
 def map_tempo(
     drums_path: Path,
+    accompaniment_path: Path,
     events: list[DrumEvent],
-    tempo_estimator: TempoEstimator,
     beat_detector: BeatDetector,
 ) -> TempoMappingResult:
-    """Estimates tempo, detects beats and assigns each event a musical
-    position anchored to the real beats. Source timestamps are never
+    """Detects beats and assigns each event a musical position anchored to
+    them. The reported tempo is derived from those same beats, so the
+    pipeline has a single tempo source. Source timestamps are never
     changed."""
-    bpm = tempo_estimator.estimate(drums_path)
-    beats = beat_detector.detect(drums_path)
+    beats = beat_detector.detect(drums_path, accompaniment_path)
 
     if len(beats) < 2:
         raise InsufficientBeatsError(
@@ -50,4 +50,5 @@ def map_tempo(
                 dataclasses.replace(event, measure=event.measure + shift) for event in quantized_events
             ]
 
+    bpm = tempo_from_beats(beats)
     return TempoMappingResult(tempo_bpm=bpm, tempo_map=TempoMap.constant(bpm), beats=beats, events=quantized_events)

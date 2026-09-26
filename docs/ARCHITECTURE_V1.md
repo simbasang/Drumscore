@@ -16,6 +16,8 @@ Core concepts:
 
 sourceTime survives every transformation. TempoMap describes musical timing relative to source audio; it is not the playback clock.
 
+Beats come from `BeatThisBeatDetector` (Beat This!, behind the `BeatDetector` protocol) run on the full mix rebuilt from the drum and accompaniment stems. They are regularized to exactly one entry per beat (`app/beat_regularization.py`), and detected downbeats choose the measure phase (4/4 only). `tempo_bpm` is derived from these beats, so there is a single tempo source. Evaluation on labelled real songs: docs/tempo-evaluation.md.
+
 ## Quantization
 Quantization maps source timestamps to musical positions using detected beat/downbeat anchors. It accounts for phase/downbeat offset and varying beat durations, preserves sourceTime, records enough information to diagnose mapping, and avoids silently forcing uncertain events into implausible positions.
 

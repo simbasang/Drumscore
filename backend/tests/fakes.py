@@ -92,23 +92,14 @@ class FakeTranscriber:
         return list(self.events)
 
 
-class FakeTempoEstimator:
-    def __init__(self, bpm: float = 120.0, error: BaseException | None = None) -> None:
-        self.bpm = bpm
-        self.error = error
-
-    def estimate(self, audio_path: Path) -> float:
-        if self.error:
-            raise self.error
-        return self.bpm
-
-
 class FakeBeatDetector:
     def __init__(self, beats=None, error: BaseException | None = None) -> None:
         self.beats = list(FOUR_BEATS if beats is None else beats)
         self.error = error
+        self.calls: list[tuple[Path, Path]] = []
 
-    def detect(self, audio_path: Path):
+    def detect(self, drums_path: Path, accompaniment_path: Path):
+        self.calls.append((drums_path, accompaniment_path))
         if self.error:
             raise self.error
         return list(self.beats)
@@ -144,7 +135,6 @@ def make_engines(**overrides):
         "extractor": FakeExtractor(),
         "separator": FakeSeparator(),
         "transcriber": FakeTranscriber(),
-        "tempo_estimator": FakeTempoEstimator(),
         "beat_detector": FakeBeatDetector(),
     }
     engines.update(overrides)

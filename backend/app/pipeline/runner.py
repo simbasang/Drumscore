@@ -31,7 +31,6 @@ from app.pipeline.tempo_mapping import map_tempo
 from app.pipeline.version import PIPELINE_VERSION
 from app.stem_separation import StemSeparator
 from app.storage import ArtifactStorage, artifact_key
-from app.tempo_estimation import TempoEstimator
 from app.transcription import DrumTranscriber
 
 logger = logging.getLogger(__name__)
@@ -54,7 +53,6 @@ class PipelineEngines:
     extractor: AudioExtractor
     separator: StemSeparator
     transcriber: DrumTranscriber
-    tempo_estimator: TempoEstimator
     beat_detector: BeatDetector
 
 
@@ -246,7 +244,8 @@ def _map_tempo_and_complete(job: Job, artifacts: dict[ArtifactKind, Artifact], c
         ctx.store.set_job_status(job.id, ctx.owner, JobStatus.MAPPING_TEMPO, ctx.clock())
         raw_events = events_from_json_bytes(ctx.storage.read_bytes(artifacts[ArtifactKind.RAW_TRANSCRIPTION].storage_key))
         drums_path = ctx.storage.path(artifacts[ArtifactKind.DRUMS_STEM].storage_key)
-        result = map_tempo(drums_path, raw_events, ctx.engines.tempo_estimator, ctx.engines.beat_detector)
+        accompaniment_path = ctx.storage.path(artifacts[ArtifactKind.ACCOMPANIMENT_STEM].storage_key)
+        result = map_tempo(drums_path, accompaniment_path, raw_events, ctx.engines.beat_detector)
         ctx.store.complete_job(
             job.id,
             ctx.owner,

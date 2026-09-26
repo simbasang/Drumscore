@@ -9,6 +9,7 @@ from app.stem_separation import StemSeparationError
 from app.persistence.memory import InMemoryStore
 from app.persistence.models import ArtifactKind, JobStatus, LeaseLostError
 from app.pipeline.runner import JobAbandoned, JobContext, process_job
+from app.pipeline.version import PIPELINE_VERSION
 from app.storage import LocalArtifactStorage
 from app.worker.pruner import prune
 from tests.fakes import (
@@ -86,7 +87,7 @@ def test_full_run_completes_job_with_analysis_artifacts_and_title(store, storage
     assert [e.time for e in analysis.events] == [e.time for e in SAMPLE_RAW_EVENTS]
     assert all(e.measure is not None for e in analysis.events)
     assert analysis.beats == FOUR_BEATS
-    assert analysis.pipeline_version == "1"
+    assert analysis.pipeline_version == PIPELINE_VERSION
     artifacts = store.artifacts_for_job(job.id)
     assert set(artifacts) == set(ArtifactKind)
     assert storage.read_bytes(artifacts[ArtifactKind.DRUMS_STEM].storage_key) == b"fake drums"
@@ -277,6 +278,21 @@ def test_permanent_error_fails_immediately(store, storage, clock):
     assert job.status == JobStatus.FAILED
     assert job.error == "video unavailable"
     assert job.attempts == 1
+
+
+def test_map_tempo_stage_gives_both_stored_stems_to_the_beat_detector(store, storage, clock):
+    new_project(store, clock)
+    detector = FakeBeatDetector()
+
+    job = run(store, storage, clock, make_engines(beat_detector=detector))
+
+    artifacts = store.artifacts_for_job(job.id)
+    assert detector.calls == [
+        (
+            storage.path(artifacts[ArtifactKind.DRUMS_STEM].storage_key),
+            storage.path(artifacts[ArtifactKind.ACCOMPANIMENT_STEM].storage_key),
+        )
+    ]
 
 
 def test_insufficient_beats_fails_with_message(store, storage, clock):

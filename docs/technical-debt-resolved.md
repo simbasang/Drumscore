@@ -5,6 +5,56 @@ superseded. Kept for history; not required reading.
 
 ---
 
+## Tempo estimation disagrees with DrumScript's own estimate
+
+**Found in:** MVP-006 manual verification
+
+Our independent `LibrosaTempoEstimator` (used for beat/measure
+mapping) produced ~123 BPM on a test track, while DrumScript's own
+internal tempo estimate (visible in its transcription logs, not
+currently consumed by us) was ~184.6 BPM on similar material. `123 ×
+1.5 ≈ 184.6` — a classic pulse-level ambiguity (simple vs. compound
+meter interpretation of the same rhythm), not a bug in either
+estimator, but it means the two tempo values used across the pipeline
+can disagree.
+
+**Fix would involve:** picking one tempo source consistently (or
+cross-validating both and preferring the one with higher confidence),
+and/or adding octave-error correction (e.g. checking whether
+half/double the detected tempo fits the onset grid better) to
+`LibrosaTempoEstimator`.
+
+**Further data point (V1-034 container verification):** a real ~113 BPM
+pop song (YouTube `dQw4w9WgXcQ`) produced `tempo_bpm` 57.4, a 0.5x octave
+error, so the ambiguity isn't only the 1.5x case.
+
+**Further data point (V1-035 release pass):** CCR "Have You Ever Seen the
+Rain" (`bO28lB1uwp4`) produced 229.7 BPM against 115 in a reference MIDI (a
+2x error), which put the notation, metronome and count-in on the wrong pulse.
+Release-blocking; tracked as #113.
+
+**Partially resolved (MVP-011):** `LibrosaTempoEstimator` now detects
+onsets and picks whichever of `tempo`, `tempo*2`, or `tempo/2` best
+fits their positions, correcting the common case where a beat tracker
+reports exactly half or double the true tempo. This does **not** fix
+the specific case originally observed (123 vs. 184.6 BPM): that's a
+1.5x ratio (simple-vs-compound meter ambiguity), not a clean octave
+error, and isn't addressed by this heuristic. Fixing that specific
+case would still need cross-validating against DrumScript's own tempo
+estimate, which isn't currently piped through to the mapping step —
+left as further work, not done here.
+
+**Resolved (V1-036, #113):** the MVP-011 phase-fit correction was itself
+the cause of the octave errors on real songs (every candidate scored ≈0.25
+on long recordings, so the choice was noise). librosa's tempo estimator and
+constant-grid beat detector are replaced by `BeatThisBeatDetector` (Beat
+This! on the mix rebuilt from both stems) plus beat regularization, and
+`tempo_bpm` is derived from those beats, so the pipeline has a single tempo
+source. DrumScript's internal estimate is no longer relevant. 8/8 real-song
+fixtures are within ±4% (docs/tempo-evaluation.md).
+
+---
+
 ## Disk cleanup for job files
 
 **Found in:** MVP-004.5 review

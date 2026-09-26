@@ -5,7 +5,6 @@ from app.beat_detection import BeatDetectionError
 from app.media_source import InvalidSourceUrlError
 from app.pipeline.errors import InsufficientBeatsError, backoff_seconds, is_permanent
 from app.stem_separation import StemSeparationError
-from app.tempo_estimation import TempoEstimationError
 from app.transcription import TranscriptionError
 
 
@@ -15,7 +14,6 @@ from app.transcription import TranscriptionError
         AudioExtractionError("video unavailable"),
         StemSeparationError("demucs failed"),
         TranscriptionError("model crashed"),
-        TempoEstimationError("no tempo"),
         BeatDetectionError("no onsets"),
         InsufficientBeatsError("1 beat"),
         InvalidSourceUrlError("bad url"),

@@ -11,8 +11,8 @@ def _beat_period(beats: list[BeatPoint], index: int) -> float:
     """The local beat duration around beats[index]: the interval to its
     next point, or (if index is the last one) the interval from its
     previous point. Assumes beats is gapless - each entry exactly one
-    beat after the previous, matching what LibrosaBeatDetector actually
-    produces."""
+    beat after the previous, matching what BeatThisBeatDetector produces
+    (app.beat_regularization.regularize_beats)."""
     if index < len(beats) - 1:
         return beats[index + 1].source_time - beats[index].source_time
     return beats[index].source_time - beats[index - 1].source_time

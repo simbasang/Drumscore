@@ -2,7 +2,6 @@ from app.audio_extraction import AudioExtractionError
 from app.beat_detection import BeatDetectionError
 from app.media_source import InvalidSourceUrlError
 from app.stem_separation import StemSeparationError
-from app.tempo_estimation import TempoEstimationError
 from app.transcription import TranscriptionError
 
 
@@ -17,7 +16,6 @@ PERMANENT_ERRORS: tuple[type[Exception], ...] = (
     AudioExtractionError,
     StemSeparationError,
     TranscriptionError,
-    TempoEstimationError,
     BeatDetectionError,
     InsufficientBeatsError,
     InvalidSourceUrlError,

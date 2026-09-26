@@ -1,8 +1,7 @@
 from app.config import Settings
 from app.demucs_stem_separator import DemucsStemSeparator
 from app.drumscript_transcriber import DrumScriptTranscriber
-from app.librosa_beat_detector import LibrosaBeatDetector
-from app.librosa_tempo_estimator import LibrosaTempoEstimator
+from app.beat_this_beat_detector import BeatThisBeatDetector
 from app.persistence.postgres import create_postgres_store
 from app.pipeline.runner import PipelineEngines
 from app.storage import LocalArtifactStorage
@@ -20,8 +19,7 @@ def default_engines(settings: Settings) -> PipelineEngines:
         ),
         separator=DemucsStemSeparator(),
         transcriber=DrumScriptTranscriber(),
-        tempo_estimator=LibrosaTempoEstimator(),
-        beat_detector=LibrosaBeatDetector(),
+        beat_detector=BeatThisBeatDetector(),
     )
 
 

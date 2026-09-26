@@ -1,19 +1,17 @@
+import tempfile
 from collections import Counter
 from pathlib import Path
 from typing import Callable, Sequence
 
 import numpy as np
 
+from app.audio_mix import mix_stems
 from app.beat_detection import BeatDetectionError
+from app.beat_regularization import regularize_beats, typical_beat_period
 from app.timing import BeatPoint
 
 DEFAULT_BEATS_PER_MEASURE = 4
 _CHECKPOINT = "final0"
-
-# Beat This! reports beats on a 50 fps frame grid, so a single inter-beat
-# interval is quantized to 20 ms (at ~115 BPM that is a ~4 BPM step).
-# Measuring over spans of this many beats shrinks the step accordingly.
-_TEMPO_SPAN_BEATS = 4
 
 Tracker = Callable[[Path], tuple[np.ndarray, np.ndarray]]
 
@@ -22,18 +20,21 @@ class BeatThisBeatDetector:
     """Beat and downbeat tracking with the Beat This! model (CPJKU, MIT
     licensed code and weights). Beats are the tracker's own source-time
     detections, not a grid built from one tempo, so they follow the
-    recording's tempo drift. Meant for the full mix: the model was trained
-    on mixes and its downbeats are unreliable on a drums-only stem."""
+    recording's tempo drift. It listens to the full mix, rebuilt from both
+    stems: the model was trained on mixes, and on a drums-only stem it
+    misjudged a shuffle's pulse and most downbeats (docs/tempo-evaluation.md)."""
 
     def __init__(self, tracker: Tracker | None = None) -> None:
         self._tracker = tracker
 
-    def detect(self, audio_path: Path) -> list[BeatPoint]:
+    def detect(self, drums_path: Path, accompaniment_path: Path) -> list[BeatPoint]:
         try:
-            beat_times, downbeat_times = self._get_tracker()(audio_path)
+            with tempfile.TemporaryDirectory(prefix="beats-") as scratch:
+                mix = mix_stems(drums_path, accompaniment_path, Path(scratch) / "mix.wav")
+                beat_times, downbeat_times = self._get_tracker()(mix)
         except Exception as error:  # noqa: BLE001 - wrap any decode/model failure
             raise BeatDetectionError(f"Failed to detect beats: {error}") from error
-        return beat_points_from_tracker(list(beat_times), list(downbeat_times))
+        return beat_points_from_tracker(regularize_beats(list(beat_times)), list(downbeat_times))
 
     def _get_tracker(self) -> Tracker:
         if self._tracker is None:
@@ -84,12 +85,5 @@ def _downbeat_phase(beat_times: Sequence[float], downbeat_times: Sequence[float]
 
 
 def tempo_from_beats(beats: Sequence[BeatPoint]) -> float:
-    """The song's typical tempo: the median beat period over spans of
-    several beats (single intervals for short sequences). The median keeps
-    a missed or extra beat from skewing it."""
-    if len(beats) < 2:
-        raise ValueError(f"Tempo needs at least 2 beats, got {len(beats)}")
-    times = np.array([beat.source_time for beat in beats])
-    span = _TEMPO_SPAN_BEATS if len(times) > _TEMPO_SPAN_BEATS else 1
-    periods = (times[span:] - times[:-span]) / span
-    return float(60.0 / np.median(periods))
+    """The song's typical tempo in BPM (see typical_beat_period)."""
+    return 60.0 / typical_beat_period([beat.source_time for beat in beats])

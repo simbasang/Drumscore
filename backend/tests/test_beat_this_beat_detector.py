@@ -105,26 +105,64 @@ def test_tempo_from_beats_rejects_fewer_than_two_beats(beat_times):
         tempo_from_beats(beats)
 
 
-def test_detect_passes_the_audio_path_to_the_tracker(tmp_path):
-    audio_path = tmp_path / "mix.wav"
-    seen = []
+def _write_wav(path, samples, sr=8000):
+    sf.write(str(path), np.asarray(samples, dtype=np.float32), sr, subtype="FLOAT")
+    return path
+
+
+def _stems(tmp_path):
+    drums = _write_wav(tmp_path / "drums.wav", [0.1, 0.2])
+    accompaniment = _write_wav(tmp_path / "accompaniment.wav", [0.3, -0.1])
+    return drums, accompaniment
+
+
+def test_detect_tracks_the_mix_of_both_stems(tmp_path):
+    drums, accompaniment = _stems(tmp_path)
+    heard = []
 
     def tracker(path):
-        seen.append(path)
+        heard.append(sf.read(str(path))[0].tolist())
         return np.array([0.5, 1.0]), np.array([0.5])
 
-    beats = BeatThisBeatDetector(tracker=tracker).detect(audio_path)
+    BeatThisBeatDetector(tracker=tracker).detect(drums, accompaniment)
 
-    assert seen == [audio_path]
-    assert [b.source_time for b in beats] == [0.5, 1.0]
+    assert heard == [pytest.approx([0.4, 0.1])]
 
 
-def test_detect_wraps_tracker_failures_in_beat_detection_error(tmp_path):
+def test_detect_regularizes_the_tracked_beats(tmp_path):
+    drums, accompaniment = _stems(tmp_path)
+    tracked = [0.5 * i for i in range(20)]
+    tracked.insert(8, 3.6)
+
+    beats = BeatThisBeatDetector(tracker=lambda path: (np.array(tracked), np.array([0.0]))).detect(
+        drums, accompaniment
+    )
+
+    assert [b.source_time for b in beats] == [0.5 * i for i in range(20)]
+
+
+def test_detect_removes_the_temporary_mix_when_tracking_fails(tmp_path):
+    drums, accompaniment = _stems(tmp_path)
+    mixes = []
+
     def tracker(path):
+        mixes.append(path)
         raise RuntimeError("decode failed")
 
     with pytest.raises(BeatDetectionError, match="decode failed"):
-        BeatThisBeatDetector(tracker=tracker).detect(tmp_path / "mix.wav")
+        BeatThisBeatDetector(tracker=tracker).detect(drums, accompaniment)
+
+    assert not mixes[0].exists()
+
+
+def test_detect_wraps_unreadable_stems_in_beat_detection_error(tmp_path):
+    (tmp_path / "drums.wav").write_bytes(b"not audio")
+    accompaniment = _write_wav(tmp_path / "accompaniment.wav", [0.1])
+
+    with pytest.raises(BeatDetectionError):
+        BeatThisBeatDetector(tracker=lambda path: (np.array([]), np.array([]))).detect(
+            tmp_path / "drums.wav", accompaniment
+        )
 
 
 def _write_accented_click_track(path, bpm: float, duration_seconds: float = 12.0, sr: int = 22050) -> None:
@@ -139,9 +177,10 @@ def _write_accented_click_track(path, bpm: float, duration_seconds: float = 12.0
 
 
 def test_detect_finds_a_click_track_tempo_with_the_real_model(tmp_path):
-    audio_path = tmp_path / "clicks.wav"
-    _write_accented_click_track(audio_path, bpm=100.0)
+    drums = tmp_path / "clicks.wav"
+    _write_accented_click_track(drums, bpm=100.0)
+    silence = _write_wav(tmp_path / "silence.wav", np.zeros(22050), sr=22050)
 
-    beats = BeatThisBeatDetector().detect(audio_path)
+    beats = BeatThisBeatDetector().detect(drums, silence)
 
     assert tempo_from_beats(beats) == pytest.approx(100.0, rel=0.04)

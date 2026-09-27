@@ -33,6 +33,9 @@ class ArtifactKind(str, Enum):
     DRUMS_STEM = "drums_stem"
     ACCOMPANIMENT_STEM = "accompaniment_stem"
     RAW_TRANSCRIPTION = "raw_transcription"
+    # The transcription engine's unmodified output, kept for diagnostics
+    # when the transcriber post-processes it (ComposedTranscriber).
+    ENGINE_TRANSCRIPTION = "engine_transcription"
 
 
 class Stage(str, Enum):

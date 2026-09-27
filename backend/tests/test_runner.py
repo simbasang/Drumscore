@@ -9,14 +9,17 @@ from app.stem_separation import StemSeparationError
 from app.persistence.memory import InMemoryStore
 from app.persistence.models import ArtifactKind, JobStatus, LeaseLostError
 from app.pipeline.runner import JobAbandoned, JobContext, process_job
+from app.persistence.serialization import events_from_json_bytes
 from app.pipeline.version import PIPELINE_VERSION
 from app.storage import LocalArtifactStorage
+from app.transcription import DrumEvent, DrumInstrument
 from app.worker.pruner import prune
 from tests.fakes import (
     FOUR_BEATS,
     SAMPLE_RAW_EVENTS,
     FakeBeatDetector,
     FakeClock,
+    FakeComposedTranscriber,
     FakeExtractor,
     FakeMonotonic,
     FakeSeparator,
@@ -89,7 +92,7 @@ def test_full_run_completes_job_with_analysis_artifacts_and_title(store, storage
     assert analysis.beats == FOUR_BEATS
     assert analysis.pipeline_version == PIPELINE_VERSION
     artifacts = store.artifacts_for_job(job.id)
-    assert set(artifacts) == set(ArtifactKind)
+    assert set(artifacts) == set(ArtifactKind) - {ArtifactKind.ENGINE_TRANSCRIPTION}
     assert storage.read_bytes(artifacts[ArtifactKind.DRUMS_STEM].storage_key) == b"fake drums"
     assert artifacts[ArtifactKind.DRUMS_STEM].storage_key == f"projects/{project.id}/{job.id}/drums.wav"
     assert store.get_project(project.id).title == "Fake Song"
@@ -416,3 +419,40 @@ def test_stored_job_error_is_sanitized_but_the_log_keeps_the_raw_text(store, sto
     assert stored.endswith("source.wav")
     assert str(tmp_path) not in stored
     assert str(leaked) in caplog.text
+
+
+ENGINE_EVENTS = [DrumEvent(id="d1", time=0.9, instrument=DrumInstrument.KICK, provenance="drumscript")]
+
+
+def test_composed_transcriber_stores_engine_output_next_to_raw_transcription(store, storage, clock):
+    engines = make_engines(transcriber=FakeComposedTranscriber(engine_events=ENGINE_EVENTS))
+    project, _ = new_project(store, clock)
+
+    job = run(store, storage, clock, engines)
+
+    artifacts = store.artifacts_for_job(job.id)
+    engine_output = storage.read_bytes(artifacts[ArtifactKind.ENGINE_TRANSCRIPTION].storage_key)
+    assert events_from_json_bytes(engine_output) == ENGINE_EVENTS
+    assert store.latest_analysis(project.id).raw_events == SAMPLE_RAW_EVENTS
+
+
+def test_plain_transcriber_stores_no_engine_output(store, storage, clock):
+    _, _ = new_project(store, clock)
+
+    job = run(store, storage, clock, make_engines())
+
+    assert ArtifactKind.ENGINE_TRANSCRIPTION not in store.artifacts_for_job(job.id)
+
+
+def test_forced_duplicate_reuses_cached_engine_output(store, storage, clock):
+    transcriber = FakeComposedTranscriber(engine_events=ENGINE_EVENTS)
+    engines = make_engines(transcriber=transcriber)
+    new_project(store, clock)
+    first = run(store, storage, clock, engines)
+    new_project(store, clock)
+
+    second = run(store, storage, clock, engines)
+
+    assert transcriber.calls == 1
+    first_key = store.artifacts_for_job(first.id)[ArtifactKind.ENGINE_TRANSCRIPTION].storage_key
+    assert store.artifacts_for_job(second.id)[ArtifactKind.ENGINE_TRANSCRIPTION].storage_key == first_key

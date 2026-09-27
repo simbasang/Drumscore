@@ -1,5 +1,8 @@
 from app.config import Settings
 from app.demucs_stem_separator import DemucsStemSeparator
+from app.drumscript_transcriber import DrumScriptTranscriber
+from app.kick_replacing_transcriber import KickReplacingTranscriber
+from app.kick_detection import LowBandKickDetector
 from app.persistence.postgres import PostgresStore
 from app.storage import LocalArtifactStorage
 from app.worker.factory import build_worker, default_engines
@@ -15,6 +18,16 @@ def test_default_engines_use_production_adapters_with_configured_limits():
     assert engines.extractor.max_duration_seconds == 60
     assert engines.extractor.max_download_bytes == 1000
     assert isinstance(engines.separator, DemucsStemSeparator)
+
+
+def test_default_transcriber_adds_low_band_kicks_to_drumscript():
+    engines = default_engines(Settings(_env_file=None))
+
+    transcriber = engines.transcriber
+
+    assert isinstance(transcriber, KickReplacingTranscriber)
+    assert isinstance(transcriber.base, DrumScriptTranscriber)
+    assert isinstance(transcriber.detector, LowBandKickDetector)
 
 
 def test_build_worker_wires_postgres_store_and_local_storage(tmp_path):

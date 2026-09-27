@@ -92,6 +92,15 @@ class FakeTranscriber:
         return list(self.events)
 
 
+class FakeComposedTranscriber(FakeTranscriber):
+    def __init__(self, events=None, engine_events=None) -> None:
+        super().__init__(events)
+        self.engine_events = list(engine_events or [])
+
+    def transcribe_with_engine_output(self, audio_path: Path):
+        return self.transcribe(audio_path), list(self.engine_events)
+
+
 class FakeBeatDetector:
     def __init__(self, beats=None, error: BaseException | None = None) -> None:
         self.beats = list(FOUR_BEATS if beats is None else beats)

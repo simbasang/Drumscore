@@ -16,10 +16,10 @@ When you add, resolve or move an entry, update the index too.
 | Meter is hardcoded 4/4 (6/8, 12/8 notated as 4/4 sixteenths) | timing/notation | deferred |
 | Measure phase is one global choice (half-bar shifts) | timing | deferred |
 | TempoMap is a single typical tempo | timing | deferred |
-| Generated notation doesn't look/read quite right yet (classifier accuracy) | transcription | partial |
+| Generated notation doesn't look/read quite right yet (snare/hi-hat accuracy; kick fixed in V1-037) | transcription | partial |
 | No auto-scroll to follow the playhead (vertical scroll) | player UI | partial |
 | Diagnostics `quantization_error_seconds` wrong after measure-shift | diagnostics | deferred |
-| Benchmark corpus's synthetic audio (validate on IDMT-SMT-Drums) | transcription | deferred |
+| Benchmark corpus's synthetic audio (real-audio MDB benchmark added; no open/closed or crash/ride labels) | transcription | partial |
 | `insertHit` cannot create a new measure | score model | deferred |
 | Note/rest durations have no dotted or tied values | notation | deferred |
 | `BEAMABLE_DURATIONS` must grow with dotted durations | notation | deferred |
@@ -147,6 +147,15 @@ CCR "Have You Ever Seen the Rain", DrumScript found 17 kicks where the
 reference has 263 (F1 0.01), snare F1 was at most 0.31 and merged hi-hat F1
 about 0.55 (`docs/RELEASE_REPORT_V1.md`). Kick detection is release-blocking;
 tracked as #114.
+
+**Kick part resolved (V1-037):** kicks now come from `LowBandKickDetector`
+instead of DrumScript's classifier; held-out MDB Drums kick F1 0.45 -> 0.88
+(Demucs stems), CCR 0.09 -> 0.65 (docs/kick-detection-evaluation.md). Still
+open: snare (MDB held-out F1 0.46, CCR 0.56), hi-hat (MDB held-out 0.29;
+CCR merged 0.88), open/closed hi-hat split, cymbals (MDB F1 0.09) and toms
+(DrumScript emitted none on all 23 MDB songs, 90 labelled). The real-audio
+benchmark (`app/drum_benchmark.py`) is the way to measure any change here.
+
 ---
 
 ## No auto-scroll to follow the playhead during playback
@@ -272,6 +281,16 @@ with real transients.
 #45/#46's acceptance criteria (repeatable, labelled, documented tolerance,
 multiple groove styles); this entry exists so a future reader doesn't
 misread the low absolute F1 number as a DrumScript quality problem.
+
+**Partially resolved (V1-037):** a real-audio benchmark now exists:
+`app/drum_benchmark.py` scores any `DrumTranscriber` against the 23
+hand-labelled MedleyDB songs of MDB Drums (kick, snare, hi-hat, toms,
+cymbals), on the Demucs stem of the full mix (production path) or the
+original drum-only track, with a fixed tune/held-out split. The data is
+CC BY-NC-SA 4.0 and fetched locally, never committed. Remaining: MDB's labels
+don't split open/closed hi-hat or crash/ride, so those distinctions are
+still measured only on the synthetic corpus; IDMT-SMT-Drums was not added
+(CC BY-NC-ND, drum-only loops, adds little over MDB's drum-only condition).
 
 ---
 

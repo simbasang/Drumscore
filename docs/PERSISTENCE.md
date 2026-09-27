@@ -74,7 +74,7 @@ support the claim query.
 | `id`          | `Uuid`                  | no       | primary key                            |
 | `project_id`  | `Uuid`                  | no       | FK `projects.id`, `ON DELETE CASCADE`  |
 | `job_id`      | `Uuid`                  | no       | FK `jobs.id`, `ON DELETE CASCADE`; indexed (`ix_artifacts_job_id`) |
-| `kind`        | `Text`                  | no       | `source_audio` / `drums_stem` / `accompaniment_stem` / `raw_transcription` |
+| `kind`        | `Text`                  | no       | `source_audio` / `drums_stem` / `accompaniment_stem` / `raw_transcription` / `engine_transcription` (the engine's unmodified output, stored when the transcriber post-processes it) |
 | `storage_key` | `Text`                  | no       | indexed (`ix_artifacts_storage_key`)   |
 | `size_bytes`  | `BigInteger`            | no       |                                         |
 | `sha256`      | `Text`                  | no       |                                         |

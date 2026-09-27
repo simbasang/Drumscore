@@ -74,3 +74,10 @@ uv run python -m app.drum_benchmark run <dir> [--engine drumscript|augmented] [-
 - Full backend suite + ruff/mypy as configured; frontend suite untouched but run before PR.
 - Container check on a separate project name (`docker compose -p drumscore-v1037`, `deploy/.env` ports 18000/13000): process CCR, confirm kick count in `raw_transcription.json` is in the reference's range and kicks appear in the rendered score (Playwright screenshot for the PR).
 - PR "Fixes #114, part of #86" with root cause, before/after tables, scope-outs (snare quality, IDMT).
+
+## Outcome / deviations
+
+- Tuning showed snares cause most false kicks, so a low/mid band ratio guard was added (Task 3 extension, TDD).
+- Replace beat union on held-out songs (kick F1 0.88 vs 0.76). The product owner chose **replace + keep raw**: `KickReplacingTranscriber` (renamed from `KickAugmentedTranscriber`) implements a new `ComposedTranscriber` protocol, and the transcribe stage stores DrumScript's unmodified output as the new `engine_transcription` artifact.
+- Ratio 0.3 (not the tune-best 0.75) was chosen because thin vintage kicks (CCR) fall below 0.75; documented in docs/kick-detection-evaluation.md.
+- Benchmark engine option is `drumscript|production`.

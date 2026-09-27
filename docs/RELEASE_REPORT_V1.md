@@ -90,7 +90,7 @@ during playback ✔.
 2. **Tempo octave error (#113, release-blocking; fixed in V1-036, see docs/tempo-evaluation.md: CCR now 116.5 BPM, 297 beats, beamed eighths; re-run the checklist).** 229.7 vs 115 BPM on CCR,
    57.4 vs ~113 on Rick Astley. Notation, metronome and count-in follow the
    wrong pulse.
-3. **Kick detection (#114, release-blocking).** Compared with the reference
+3. **Kick detection (#114, release-blocking; fixed in V1-037, see docs/kick-detection-evaluation.md: CCR kick F1 0.09 → 0.65, 284 kicks vs 263; held-out MDB Drums 0.45 → 0.88; re-run the checklist).** Compared with the reference
    MIDI (tempo-tolerant alignment, 50 ms, greedy per-instrument matching as in
    `app/benchmark.py`): kick 16 detected vs 263 (F1 0.01), snare F1 ≤ 0.31,
    hi-hat (open+closed) F1 ~0.55, instrument-agnostic onsets F1 0.61. Raw
@@ -121,7 +121,7 @@ From the `TECHNICAL_DEBT.md` index and this pass:
 |---|---|---|
 | Submit a song | ✔ | §2 submit |
 | Reliable processing progress | ✔ | §2 progress, API outage, failure → retry |
-| Readable notation aligned to the recording | **✘ #113, #114** | Engraving rules pass; tempo 2× and missing kicks make the result unreadable for this song |
+| Readable notation aligned to the recording | **✘ #113, #114 (both fixed; re-run pending)** | Engraving rules pass; tempo 2× and missing kicks make the result unreadable for this song |
 | Synchronized stems | ✔ (automated + transport timing; audible check pending sign-off) | §2 play/seek/loop/speed |
 | Reduce/mute drums | ✔ (automated; audible check pending sign-off) | REGRESSION_CHECKLIST §6 |
 | Seek by audio or score | ✔ | §2 slider and click-to-seek |

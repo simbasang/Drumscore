@@ -656,6 +656,38 @@ describe("Player", () => {
     }
   });
 
+  it("should re-enable Play and Count-in when playback after a count-in ends at once because it started at the end of the track", async () => {
+    jest.useFakeTimers();
+    try {
+      const beats = [
+        { source_time: 0, measure: 1, beat: 1, is_downbeat: true, confidence: 1 },
+        { source_time: 0.5, measure: 1, beat: 2, is_downbeat: false, confidence: 1 },
+      ];
+      render(
+        <Player
+          apiBaseUrl="http://localhost:8000"
+          projectId="project-1"
+          events={[]}
+          beats={beats}
+          createAudioContext={fakeContextFactoryWithOscillator}
+        />,
+      );
+      await screen.findByRole("button", { name: /play/i });
+      fireEvent.click(screen.getByRole("button", { name: /count-in/i }));
+      await screen.findByRole("button", { name: /pause/i });
+
+      act(() => {
+        jest.advanceTimersByTime(10000);
+        rafCallback?.(0);
+      });
+
+      expect(screen.getByRole("button", { name: /^play$/i })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /count-in/i })).toBeEnabled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it("should not throw, and should never call play, when the component unmounts while a count-in is pending", async () => {
     jest.useFakeTimers();
     try {

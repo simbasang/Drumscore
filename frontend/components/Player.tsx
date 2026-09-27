@@ -198,7 +198,6 @@ export default function Player({
   const transportRef = useRef<PracticeTransport | null>(null);
   const rafRef = useRef<number | null>(null);
   const contextRef = useRef<DecodableAudioContext | null>(null);
-  const countInPendingRef = useRef(false);
 
   const editor = useScoreEditor(events, initialScore);
   // editor.score only changes identity on a real edit, but currentTime (and
@@ -314,13 +313,14 @@ export default function Player({
       return;
     }
     setCurrentTime(transport.tick());
-    if (transport.isPlaying) {
-      if (countInPendingRef.current) {
-        countInPendingRef.current = false;
-        setIsCountingIn(false);
-      }
-      rafRef.current = requestAnimationFrame(tick);
-    } else if (countInPendingRef.current) {
+    // The transport owns the count-in state: once its timer fires, play() may
+    // end within the same frame (count-in started at the end of the track),
+    // so isPlaying is never observed true and can't be what ends the count-in.
+    const countingIn = transport.isCountingIn;
+    if (!countingIn) {
+      setIsCountingIn(false);
+    }
+    if (transport.isPlaying || countingIn) {
       rafRef.current = requestAnimationFrame(tick);
     } else {
       setIsPlaying(false);
@@ -351,7 +351,6 @@ export default function Player({
     if (!transport) {
       return;
     }
-    countInPendingRef.current = true;
     transport.playWithCountIn();
     setIsPlaying(true);
     setIsCountingIn(true);

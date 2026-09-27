@@ -43,6 +43,7 @@ When you add, resolve or move an entry, update the index too.
 | Every edit re-engraves the whole score synchronously | frontend | deferred |
 | `GET /score` 404 before first save logs a console error | frontend | deferred |
 | Purged projects leave empty storage directories | storage | deferred |
+| DrumScript event times are grid-quantized, not source onsets (#118, release-blocking) | transcription/timing | open |
 
 ---
 
@@ -155,6 +156,13 @@ open: snare (MDB held-out F1 0.46, CCR 0.56), hi-hat (MDB held-out 0.29;
 CCR merged 0.88), open/closed hi-hat split, cymbals (MDB F1 0.09) and toms
 (DrumScript emitted none on all 23 MDB songs, 90 labelled). The real-audio
 benchmark (`app/drum_benchmark.py`) is the way to measure any change here.
+
+**Release re-run (2026-09-27):** part of the snare/hi-hat gap is a timing
+defect, not classification: DrumScript's non-kick times are quantized
+(see "DrumScript event times are grid-quantized" below, #118). On CCR the
+same stem scores snare 0.39 / merged hi-hat 0.65 with the shipped
+quantized times, and 0.56 / 0.88 with DrumScript's raw onsets (the V1-037
+CCR figures were measured on raw onsets).
 
 ---
 
@@ -845,5 +853,32 @@ project leaves a few KB of empty directories behind.
 after deleting a key in `LocalArtifactStorage.delete`.
 
 **Deferred:** negligible size; no functional impact.
+
+---
+
+## DrumScript event times are grid-quantized, not source onsets
+
+**Found in:** V1-035 release gate re-run (2026-09-27). Tracked as #118
+(V1-038), release-blocking.
+
+`drumscript.transcribe()` ends by building its own score:
+`notation_generator/score_builder.py` snaps each event to a 16th-note grid
+at DrumScript's single estimated tempo and overwrites `event["time_sec"]`
+in place, and `transcribe()` returns those same dicts. The runner
+(`drumscript_runner/run_transcription.py`) reads `time_sec` from them, so
+every non-kick event's stored source time has been a grid time since the
+MVP. Kicks are unaffected (they come from `LowBandKickDetector` since
+V1-037).
+
+Evidence: on CCR 448 of 551 onset intervals are exactly 0.2554 s; the same
+stem through DrumScript's `detect_onsets` + `classify_events` (no
+`build_score`) gives natural 0.24–0.27 s intervals and raises onset F1
+against the reference MIDI from 0.69 to 0.91. The MDB benchmark runs
+through the same runner, so its non-kick baselines are affected too.
+
+**Fix would involve:** taking DrumScript's unquantized onset times behind
+the `DrumTranscriber` boundary (e.g. calling its onset detection and
+classification directly instead of `transcribe()`), with MDB and CCR
+before/after numbers.
 
 ---

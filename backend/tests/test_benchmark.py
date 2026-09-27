@@ -1,6 +1,14 @@
 import dataclasses
 
-from app.benchmark import DEFAULT_MATCH_TOLERANCE_SECONDS, evaluate_corpus, evaluate_transcriber
+import pytest
+
+from app.benchmark import (
+    DEFAULT_MATCH_TOLERANCE_SECONDS,
+    MatchCounts,
+    evaluate_corpus,
+    evaluate_transcriber,
+    score_hits,
+)
 from app.transcription import DrumEvent, DrumInstrument
 from tests.fixtures.diagnostic_songs import DiagnosticSong, ExpectedHit
 
@@ -159,3 +167,35 @@ def test_evaluate_transcriber_f1_is_zero_when_both_precision_and_recall_are_zero
     assert kick_metrics.precision == 0.0
     assert kick_metrics.recall == 0.0
     assert kick_metrics.f1 == 0.0
+
+
+@dataclasses.dataclass(frozen=True)
+class _Hit:
+    time: float
+
+
+def test_score_hits_counts_precision_recall_f1():
+    predicted = [_Hit(1.0), _Hit(2.01), _Hit(5.0)]
+    expected = [_Hit(1.0), _Hit(2.0), _Hit(3.0)]
+
+    result = score_hits(predicted, expected, DEFAULT_MATCH_TOLERANCE_SECONDS)
+
+    assert (result.true_positives, result.false_positives, result.false_negatives) == (2, 1, 1)
+    assert result.precision == pytest.approx(2 / 3)
+    assert result.recall == pytest.approx(2 / 3)
+    assert result.f1 == pytest.approx(2 / 3)
+
+
+def test_score_hits_empty_inputs_are_zero_not_error():
+    result = score_hits([], [], DEFAULT_MATCH_TOLERANCE_SECONDS)
+
+    assert result == MatchCounts.from_counts(0, 0, 0)
+    assert (result.precision, result.recall, result.f1) == (0.0, 0.0, 0.0)
+
+
+def test_match_counts_from_counts_derives_rates_from_summed_counts():
+    result = MatchCounts.from_counts(true_positives=3, false_positives=1, false_negatives=3)
+
+    assert result.precision == pytest.approx(0.75)
+    assert result.recall == pytest.approx(0.5)
+    assert result.f1 == pytest.approx(0.6)

@@ -33,6 +33,37 @@ class BenchmarkSong(Protocol):
     def write_wav(self, path: Path) -> Path: ...
 
 
+class HasTime(Protocol):
+    time: float
+
+
+@dataclasses.dataclass(frozen=True)
+class MatchCounts:
+    true_positives: int
+    false_positives: int
+    false_negatives: int
+    precision: float
+    recall: float
+    f1: float
+
+    @classmethod
+    def from_counts(cls, true_positives: int, false_positives: int, false_negatives: int) -> "MatchCounts":
+        """Derives the rates from counts, so pooled results sum counts first
+        instead of averaging per-song rates."""
+        precision = (
+            true_positives / (true_positives + false_positives)
+            if (true_positives + false_positives) > 0
+            else 0.0
+        )
+        recall = (
+            true_positives / (true_positives + false_negatives)
+            if (true_positives + false_negatives) > 0
+            else 0.0
+        )
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+        return cls(true_positives, false_positives, false_negatives, precision, recall, f1)
+
+
 @dataclasses.dataclass(frozen=True)
 class InstrumentMetrics:
     instrument: DrumInstrument
@@ -52,11 +83,11 @@ class BenchmarkResult:
     unmatched_expected: tuple[ExpectedHit, ...]
 
 
-def _match_instrument(
-    predicted: list[DrumEvent],
-    expected: list[ExpectedHit],
+def match_hits[P: HasTime, E: HasTime](
+    predicted: Sequence[P],
+    expected: Sequence[E],
     tolerance_seconds: float,
-) -> tuple[int, list[DrumEvent], list[ExpectedHit]]:
+) -> tuple[int, list[P], list[E]]:
     """Greedy nearest-time matching within a single instrument: each
     predicted event (processed in time order) is matched to its closest
     still-unmatched expected hit within tolerance_seconds. When two
@@ -68,7 +99,7 @@ def _match_instrument(
     where this doesn't change true/false-positive counts in practice.
     Returns (true_positive_count, unmatched_predicted, unmatched_expected)."""
     remaining_expected = list(expected)
-    unmatched_predicted: list[DrumEvent] = []
+    unmatched_predicted: list[P] = []
     true_positives = 0
 
     for event in sorted(predicted, key=lambda e: e.time):
@@ -88,6 +119,15 @@ def _match_instrument(
             true_positives += 1
 
     return true_positives, unmatched_predicted, remaining_expected
+
+
+def score_hits(
+    predicted: Sequence[HasTime],
+    expected: Sequence[HasTime],
+    tolerance_seconds: float = DEFAULT_MATCH_TOLERANCE_SECONDS,
+) -> MatchCounts:
+    true_positives, unmatched_predicted, unmatched_expected = match_hits(predicted, expected, tolerance_seconds)
+    return MatchCounts.from_counts(true_positives, len(unmatched_predicted), len(unmatched_expected))
 
 
 def evaluate_transcriber(
@@ -110,33 +150,20 @@ def evaluate_transcriber(
         predicted_for_instrument = [e for e in predicted_events if e.instrument == instrument]
         expected_for_instrument = [h for h in song.expected_hits if h.instrument == instrument]
 
-        true_positives, unmatched_predicted, unmatched_expected = _match_instrument(
+        true_positives, unmatched_predicted, unmatched_expected = match_hits(
             predicted_for_instrument, expected_for_instrument, tolerance_seconds
         )
-        false_positives = len(unmatched_predicted)
-        false_negatives = len(unmatched_expected)
-
-        precision = (
-            true_positives / (true_positives + false_positives)
-            if (true_positives + false_positives) > 0
-            else 0.0
-        )
-        recall = (
-            true_positives / (true_positives + false_negatives)
-            if (true_positives + false_negatives) > 0
-            else 0.0
-        )
-        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+        counts = MatchCounts.from_counts(true_positives, len(unmatched_predicted), len(unmatched_expected))
 
         per_instrument.append(
             InstrumentMetrics(
                 instrument=instrument,
-                true_positives=true_positives,
-                false_positives=false_positives,
-                false_negatives=false_negatives,
-                precision=precision,
-                recall=recall,
-                f1=f1,
+                true_positives=counts.true_positives,
+                false_positives=counts.false_positives,
+                false_negatives=counts.false_negatives,
+                precision=counts.precision,
+                recall=counts.recall,
+                f1=counts.f1,
             )
         )
         all_unmatched_predicted.extend(unmatched_predicted)

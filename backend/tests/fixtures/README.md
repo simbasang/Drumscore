@@ -89,3 +89,23 @@ Same API shape as `diagnostic_songs.py`'s `get_diagnostic_song`/
 Timing match tolerance for comparing a transcriber's output against this
 corpus's ground truth is `DEFAULT_MATCH_TOLERANCE_SECONDS` (±50ms) in
 `app/benchmark.py`.
+
+# Real-audio transcription benchmark (MDB Drums)
+
+The synthetic corpus above cannot tell how the classifier behaves on real
+drum sounds. `app/drum_benchmark.py` scores a transcriber against the
+hand-labelled hits of the 23 songs in
+[MDB Drums](https://github.com/CarlSouthall/MDBDrums) (MedleyDB subset;
+kick, snare, hi-hat, toms, cymbals). The data is licensed CC BY-NC-SA 4.0
+and is **never committed**: `fetch` downloads it into a local directory.
+
+```
+cd backend
+uv run python -m app.drum_benchmark fetch <dir>   # full mix, drum-only track, labels; Demucs on the mix (slow, once)
+uv run python -m app.drum_benchmark run <dir> [drumscript|production] [demucs|drum_only]
+```
+
+`demucs` scores the Demucs drum stem of the full mix (the production path);
+`drum_only` scores the original isolated drum recording. Songs are split
+by name into a tune half and a held-out half; parameters may only be tuned
+on the tune half. Results: `docs/kick-detection-evaluation.md`.

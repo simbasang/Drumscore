@@ -1,6 +1,8 @@
 from app.config import Settings
 from app.demucs_stem_separator import DemucsStemSeparator
 from app.drumscript_transcriber import DrumScriptTranscriber
+from app.kick_replacing_transcriber import KickReplacingTranscriber
+from app.kick_detection import LowBandKickDetector
 from app.beat_this_beat_detector import BeatThisBeatDetector
 from app.persistence.postgres import create_postgres_store
 from app.pipeline.runner import PipelineEngines
@@ -18,7 +20,7 @@ def default_engines(settings: Settings) -> PipelineEngines:
             max_download_bytes=settings.max_download_bytes,
         ),
         separator=DemucsStemSeparator(),
-        transcriber=DrumScriptTranscriber(),
+        transcriber=KickReplacingTranscriber(DrumScriptTranscriber(), LowBandKickDetector()),
         beat_detector=BeatThisBeatDetector(),
     )
 

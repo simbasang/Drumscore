@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
 class TranscriptionError(Exception):
@@ -48,3 +48,14 @@ class DrumEvent:
 
 class DrumTranscriber(Protocol):
     def transcribe(self, audio_path: Path) -> list[DrumEvent]: ...
+
+
+@runtime_checkable
+class ComposedTranscriber(DrumTranscriber, Protocol):
+    """A transcriber that post-processes an underlying engine's output. The
+    pipeline stores that unmodified engine output next to the final events
+    so engine errors stay separable from our own changes."""
+
+    def transcribe_with_engine_output(self, audio_path: Path) -> tuple[list[DrumEvent], list[DrumEvent]]:
+        """Returns (final events, the engine's unmodified events)."""
+        ...

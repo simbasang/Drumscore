@@ -31,7 +31,7 @@ from app.pipeline.tempo_mapping import map_tempo
 from app.pipeline.version import PIPELINE_VERSION
 from app.stem_separation import StemSeparator
 from app.storage import ArtifactStorage, artifact_key
-from app.transcription import DrumTranscriber
+from app.transcription import ComposedTranscriber, DrumTranscriber
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,7 @@ _FILENAMES = {
     ArtifactKind.DRUMS_STEM: "drums.wav",
     ArtifactKind.ACCOMPANIMENT_STEM: "accompaniment.wav",
     ArtifactKind.RAW_TRANSCRIPTION: "raw_transcription.json",
+    ArtifactKind.ENGINE_TRANSCRIPTION: "engine_transcription.json",
 }
 
 StageOutputs = list[tuple[ArtifactKind, Path]]
@@ -233,10 +234,19 @@ def _separate(source_audio: Artifact, ctx: JobContext, staging: Path) -> StageOu
 
 
 def _transcribe(drums: Artifact, ctx: JobContext, staging: Path) -> StageOutputs:
-    events = ctx.engines.transcriber.transcribe(ctx.storage.path(drums.storage_key))
+    transcriber = ctx.engines.transcriber
+    drums_path = ctx.storage.path(drums.storage_key)
+    outputs: StageOutputs = []
+    if isinstance(transcriber, ComposedTranscriber):
+        events, engine_events = transcriber.transcribe_with_engine_output(drums_path)
+        engine_output = staging / "engine_transcription.json"
+        engine_output.write_bytes(events_to_json_bytes(engine_events))
+        outputs.append((ArtifactKind.ENGINE_TRANSCRIPTION, engine_output))
+    else:
+        events = transcriber.transcribe(drums_path)
     output = staging / "raw_transcription.json"
     output.write_bytes(events_to_json_bytes(events))
-    return [(ArtifactKind.RAW_TRANSCRIPTION, output)]
+    return [(ArtifactKind.RAW_TRANSCRIPTION, output), *outputs]
 
 
 def _map_tempo_and_complete(job: Job, artifacts: dict[ArtifactKind, Artifact], ctx: JobContext) -> None:

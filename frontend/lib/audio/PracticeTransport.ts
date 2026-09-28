@@ -97,6 +97,10 @@ export class PracticeTransport {
     return this.player.isPlaying;
   }
 
+  get isCountingIn(): boolean {
+    return this.countInTimeoutId != null;
+  }
+
   get duration(): number {
     return this.player.duration;
   }

@@ -226,6 +226,32 @@ describe("PracticeTransport metronome and count-in", () => {
     jest.useRealTimers();
   });
 
+  it("should report a pending count-in only until its timer fires", () => {
+    jest.useFakeTimers();
+    const transport = new PracticeTransport(player, context, beats);
+    player.getCurrentTime.mockReturnValue(0);
+
+    transport.playWithCountIn();
+    const pending = transport.isCountingIn;
+    jest.advanceTimersByTime(2000);
+
+    expect(pending).toBe(true);
+    expect(transport.isCountingIn).toBe(false);
+    jest.useRealTimers();
+  });
+
+  it("should not report a pending count-in after pause cancels it", () => {
+    jest.useFakeTimers();
+    const transport = new PracticeTransport(player, context, beats);
+    player.getCurrentTime.mockReturnValue(0);
+    transport.playWithCountIn();
+
+    transport.pause();
+
+    expect(transport.isCountingIn).toBe(false);
+    jest.useRealTimers();
+  });
+
   it("should play immediately with no count-in when fewer than two beats are available", () => {
     const transport = new PracticeTransport(player, context, [beat(0, 1, 1, true)]);
     player.getCurrentTime.mockReturnValue(0);

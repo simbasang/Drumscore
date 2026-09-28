@@ -117,7 +117,10 @@ docs/RELEASE_REPORT_V1.md (a fan-made arrangement, not ground truth):
 | DrumScript | 16 | 0.75 | 0.05 | 0.09 |
 | this change | 284 | 0.63 | 0.68 | **0.65** |
 
-Snare (0.56) and merged hi-hat (0.88) are unchanged.
+Snare (0.56) and merged hi-hat (0.88) are unchanged. These two were
+measured on DrumScript's raw onsets; the shipped pipeline gets
+grid-quantized DrumScript times (0.39 / 0.65 on CCR, #118; see
+`docs/RELEASE_REPORT_V1.md`).
 
 ## Limitations
 

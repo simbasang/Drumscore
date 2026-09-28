@@ -337,3 +337,36 @@ long tasks during playback (`docs/RELEASE_REPORT_V1.md`). The audible checks
 remain part of the product owner's release sign-off.
 
 ---
+
+## DrumScript event times are grid-quantized, not source onsets
+
+**Found in:** V1-035 release gate re-run (2026-09-27). Tracked as #118
+(V1-038), release-blocking.
+
+`drumscript.transcribe()` ends by building its own score:
+`notation_generator/score_builder.py` snaps each event to a 16th-note grid
+at DrumScript's single estimated tempo and overwrites `event["time_sec"]`
+in place, and `transcribe()` returns those same dicts. The runner
+(`drumscript_runner/run_transcription.py`) reads `time_sec` from them, so
+every non-kick event's stored source time has been a grid time since the
+MVP. Kicks are unaffected (they come from `LowBandKickDetector` since
+V1-037).
+
+Evidence: on CCR 448 of 551 onset intervals are exactly 0.2554 s; the same
+stem through DrumScript's `detect_onsets` + `classify_events` (no
+`build_score`) gives natural 0.24–0.27 s intervals and raises onset F1
+against the reference MIDI from 0.69 to 0.91. The MDB benchmark runs
+through the same runner, so its non-kick baselines are affected too.
+
+**Fix would involve:** taking DrumScript's unquantized onset times behind
+the `DrumTranscriber` boundary (e.g. calling its onset detection and
+classification directly instead of `transcribe()`), with MDB and CCR
+before/after numbers.
+
+**Resolved (V1-038, #118):** the runner calls DrumScript's `detect_onsets` +
+`classify_events` directly instead of `transcribe()`, so events keep
+DrumScript's detected onset times; `PIPELINE_VERSION` bumped to 4. MDB
+all-23 Demucs snare F1 0.49 -> 0.64, hi-hat 0.43 -> 0.60; CCR onset F1
+0.68 -> 0.91 (docs/drumscript-onset-times.md).
+
+---

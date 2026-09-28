@@ -96,7 +96,9 @@ Kick, pooled (DrumScript today → this change):
 
 Other groups are unchanged by construction and measured identical (all 23,
 demucs): snare F1 0.49, hi-hat 0.43, cymbals 0.09, toms 0.00 (DrumScript
-emits no toms at all on these songs).
+emits no toms at all on these songs). These non-kick figures were measured on
+DrumScript's grid-quantized times; with its source onset times (V1-038) they
+are snare 0.64, hi-hat 0.60, cymbals 0.11 (docs/drumscript-onset-times.md).
 
 Per-song kick F1, demucs (DrumScript → this change): 80sRock 0.93 → 0.99,
 Beatles 0.76 → 0.61, BebopJazz 0.06 → 0.60, Britpop 0.52 → 0.78, CoolJazz

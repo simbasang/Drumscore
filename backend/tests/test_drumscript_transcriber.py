@@ -79,13 +79,14 @@ def test_transcribe_invokes_runner_script_with_audio_and_output_paths(tmp_path, 
         assert command[0] == str(fake_runner_python)
         assert command[1] == str(_RUNNER_SCRIPT)
         assert command[2] == str(audio_path)
+        assert len(command) == 4
         assert kwargs["timeout"] == 600
         assert kwargs["encoding"] == "utf-8"
         assert kwargs["errors"] == "replace"
         assert detached_process_kwargs().items() <= kwargs.items()
 
 
-def test_transcribe_gives_drumscript_a_scratch_output_dir_removed_afterwards(tmp_path):
+def test_transcribe_writes_events_to_a_scratch_dir_removed_afterwards(tmp_path):
     audio_path = tmp_path / "stems" / "drums.wav"
 
     with patch("app.drumscript_transcriber.subprocess.run") as mock_run:
@@ -93,11 +94,9 @@ def test_transcribe_gives_drumscript_a_scratch_output_dir_removed_afterwards(tmp
 
         DrumScriptTranscriber().transcribe(audio_path)
 
-    command = mock_run.call_args.args[0]
-    output_dir = Path(command[4])
-    assert output_dir.parent == Path(command[3]).parent
-    assert audio_path.parent not in output_dir.parents
-    assert not output_dir.parent.exists()
+    events_path = Path(mock_run.call_args.args[0][3])
+    assert audio_path.parent not in events_path.parents
+    assert not events_path.parent.exists()
 
 
 def test_transcribe_raises_when_runner_exits_nonzero(tmp_path):

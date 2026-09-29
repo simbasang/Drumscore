@@ -16,7 +16,7 @@ When you add, resolve or move an entry, update the index too.
 | Meter is hardcoded 4/4 (6/8, 12/8 notated as 4/4 sixteenths) | timing/notation | deferred |
 | Measure phase is one global choice (half-bar shifts) | timing | deferred |
 | TempoMap is a single typical tempo | timing | deferred |
-| Generated notation doesn't look/read quite right yet (snare/hi-hat accuracy; kick fixed in V1-037) | transcription | partial |
+| Generated notation doesn't look/read quite right yet (snare/hi-hat classification; kick fixed in V1-037, timing in V1-038) | transcription | partial |
 | No auto-scroll to follow the playhead (vertical scroll) | player UI | partial |
 | Diagnostics `quantization_error_seconds` wrong after measure-shift | diagnostics | deferred |
 | Benchmark corpus's synthetic audio (real-audio MDB benchmark added; no open/closed or crash/ride labels) | transcription | partial |
@@ -43,7 +43,6 @@ When you add, resolve or move an entry, update the index too.
 | Every edit re-engraves the whole score synchronously | frontend | deferred |
 | `GET /score` 404 before first save logs a console error | frontend | deferred |
 | Purged projects leave empty storage directories | storage | deferred |
-| DrumScript event times are grid-quantized, not source onsets (#118, release-blocking) | transcription/timing | open |
 
 ---
 
@@ -159,10 +158,17 @@ benchmark (`app/drum_benchmark.py`) is the way to measure any change here.
 
 **Release re-run (2026-09-27):** part of the snare/hi-hat gap is a timing
 defect, not classification: DrumScript's non-kick times are quantized
-(see "DrumScript event times are grid-quantized" below, #118). On CCR the
+(#118, now in docs/technical-debt-resolved.md). On CCR the
 same stem scores snare 0.39 / merged hi-hat 0.65 with the shipped
 quantized times, and 0.56 / 0.88 with DrumScript's raw onsets (the V1-037
 CCR figures were measured on raw onsets).
+
+**Timing part resolved (V1-038):** DrumScript events now carry its detected
+onset times. MDB all-23 Demucs: snare 0.49 -> 0.64, hi-hat 0.43 -> 0.60,
+cymbals 0.09 -> 0.11; held-out snare 0.62, hi-hat 0.46; CCR snare 0.56,
+merged hi-hat 0.88 (docs/drumscript-onset-times.md). What remains is
+classification: hi-hat over-detection (MDB precision 0.46), open hi-hat
+recall (CCR 0.23), cymbals and toms.
 
 ---
 
@@ -853,32 +859,5 @@ project leaves a few KB of empty directories behind.
 after deleting a key in `LocalArtifactStorage.delete`.
 
 **Deferred:** negligible size; no functional impact.
-
----
-
-## DrumScript event times are grid-quantized, not source onsets
-
-**Found in:** V1-035 release gate re-run (2026-09-27). Tracked as #118
-(V1-038), release-blocking.
-
-`drumscript.transcribe()` ends by building its own score:
-`notation_generator/score_builder.py` snaps each event to a 16th-note grid
-at DrumScript's single estimated tempo and overwrites `event["time_sec"]`
-in place, and `transcribe()` returns those same dicts. The runner
-(`drumscript_runner/run_transcription.py`) reads `time_sec` from them, so
-every non-kick event's stored source time has been a grid time since the
-MVP. Kicks are unaffected (they come from `LowBandKickDetector` since
-V1-037).
-
-Evidence: on CCR 448 of 551 onset intervals are exactly 0.2554 s; the same
-stem through DrumScript's `detect_onsets` + `classify_events` (no
-`build_score`) gives natural 0.24–0.27 s intervals and raises onset F1
-against the reference MIDI from 0.69 to 0.91. The MDB benchmark runs
-through the same runner, so its non-kick baselines are affected too.
-
-**Fix would involve:** taking DrumScript's unquantized onset times behind
-the `DrumTranscriber` boundary (e.g. calling its onset detection and
-classification directly instead of `transcribe()`), with MDB and CCR
-before/after numbers.
 
 ---

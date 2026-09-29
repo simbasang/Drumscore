@@ -6,6 +6,10 @@ Outcome of the V1-035 release gate (`docs/RELEASE_CHECKLIST.md`).
 grid-quantized instead of source onsets). Everything else passed or was fixed
 on the branch. Re-run the checklist once #118 is merged.
 
+**Update (V1-038):** #118 is fixed: DrumScript events now keep their detected
+onset times (CCR onset F1 0.68 -> 0.91; docs/drumscript-onset-times.md). The
+gate stays open until the checklist is re-run (pass 3) and signed off.
+
 ## History
 
 | Pass | Date | Branch | Outcome |

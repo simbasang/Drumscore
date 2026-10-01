@@ -2,22 +2,122 @@
 
 Outcome of the V1-035 release gate (`docs/RELEASE_CHECKLIST.md`).
 
-**Gate status: BLOCKED** on #118 (V1-038: DrumScript event times are
-grid-quantized instead of source onsets). Everything else passed or was fixed
-on the branch. Re-run the checklist once #118 is merged.
-
-**Update (V1-038):** #118 is fixed: DrumScript events now keep their detected
-onset times (CCR onset F1 0.68 -> 0.91; docs/drumscript-onset-times.md). The
-gate stays open until the checklist is re-run (pass 3) and signed off.
+**Gate status: PASSED (pass 3), pending the product owner's sign-off.** #118
+(V1-038) is merged and every checklist step passes on a clean deployment. No
+new defects. Remaining: the audible checks and DoD sign-off (see the end).
 
 ## History
 
 | Pass | Date | Branch | Outcome |
 |---|---|---|---|
 | 1 | 2026-09-25 | `v1-035_release-gate` | Blocked on #113 (tempo octave error, 229.7 vs 115 BPM) and #114 (17 vs 263 kicks). Fixed on the branch: DrumScript side output never pruned. Full report in git history (PR #115). |
-| 2 | 2026-09-27 | `v1-035_release-gate-rerun` | #113 and #114 confirmed fixed. New: count-in lockup (fixed on the branch) and quantized DrumScript times (#118, release-blocking). This report. |
+| 2 | 2026-09-27 | `v1-035_release-gate-rerun` | #113 and #114 confirmed fixed. New: count-in lockup (fixed on the branch) and quantized DrumScript times (#118, release-blocking). Details under Pass 2 below. |
+| 3 | 2026-10-01 | `v1-035_release-gate-pass3` | #118 confirmed fixed; count-in fix confirmed. No new defects. This report. |
 
-## Environment (pass 2)
+## Pass 3 (2026-10-01)
+
+### Environment
+
+- `main` at `eee504d` (#120, V1-038 merged). No code changes on this branch.
+  Frontend code is unchanged since pass 2; the backend change is V1-038 only
+  (`PIPELINE_VERSION` 4, verified inside the worker image).
+- Clean deployment per `docs/DEPLOYMENT.md`: pass-2 stack removed with
+  `down -v`, images rebuilt, compose project `drumscore-v1035p3` with fresh
+  volumes, host ports 18000/13000, `WORKER_CONCURRENCY=1`, CPU-only torch.
+- Songs: CCR (`bO28lB1uwp4`, 2:45, reference MIDI), Rick Astley
+  (`dQw4w9WgXcQ`, 3:33), and for the memory check Toto — Africa
+  (`FTQbiNvZqaY`, 4:55) and Queen — Bohemian Rhapsody (`fJ9rUzIMcZQ`, 5:59).
+  Unavailable IDs `aaaaaaaaaaa`, `aaaaaaaaaab`.
+- Browser pass driven with Playwright (Chromium), instrumented as in pass 2:
+  `AudioBufferSourceNode.start` / `OscillatorNode.start` (with
+  `context.currentTime`) map every stem start, metronome and count-in click
+  to source time; the playhead is sampled per animation frame.
+
+### 1. Automated gate
+
+| Check | Result |
+|---|---|
+| Clean deploy, health/readiness | Pass: all services healthy, migrate exit 0, `/api/ready` OK (database at head, storage writable) |
+| Backend `uv run pytest` (incl. `tests/test_release_e2e.py` on Postgres) | 570 passed |
+| Frontend Jest | 308 passed |
+| `pnpm lint`, `npx tsc --noEmit` | Clean (lint's only warning is in the git-ignored `coverage/` report) |
+
+### 2. Browser pass
+
+| Step | Result | Evidence |
+|---|---|---|
+| Submit → progress → completed | Pass | "Downloading audio..." → completed; CCR 160.4 s end to end |
+| Source onset times (#118 re-check) | Pass | Non-kick `source_time`s are detected onsets, not a grid (e.g. snare 1.1204 s, quantized 1.12 s). Events match the V1-038 evaluation run: snare 144/145, closed hi-hat 421/430, crash 48/50 identical (median Δ 0 ms); kick 264/290 (Demucs run-to-run variation) |
+| Tempo / beats | Pass | CCR 116.5 BPM, 297 beats; Rick Astley 113.2 BPM, 400 beats (as in pass 2) |
+| Notation engraving | Pass | 4/4 five-line staff, stems up, beamed hi-hats, backbeat snare, mixed durations and rests, adaptive rows; 570 clickable notes |
+| Play / playhead | Pass | Rate 1.000 over 10 s; playhead monotonic within rows; no long tasks |
+| Slider seek | Pass | 20 → 60 s immediately; rate 1.000 after the seek |
+| Click-to-seek on a note | Pass | Playhead lands 6 px from the clicked note |
+| A/B loop | Pass | 40.25–43.3 s: stems restart at 40.25 s every 3.06 s from the first pass; `Clear loop` resumes |
+| Speed | Pass | Measured 0.498 / 0.748 / 0.999 for 0.5× / 0.75× / 1× |
+| Metronome | Pass | 20 clicks at 1× (across a seek) and 8 at 0.75× all land on a beat-map beat (0 ms error) |
+| Count-in | Pass | 4 clicks 0.52 s apart (local beat period 0.52 s), stems start one beat after the last click, Play/Count-in disabled meanwhile |
+| Count-in from the end (pass-2 Defect 1) | Pass | Controls re-enabled after the count-in; no lockup |
+| Edit: delete / change / move / add | Pass | Hit list and render update per edit; "Unsaved changes" |
+| Undo ×4 / redo ×4, save (Ctrl+S) | Pass | Undo returns exactly to the original (Undo disabled), redo matches the forward state, "All changes saved", score v1 |
+| Reload | Pass | Saved edits load (985 hits, changed hit shows `crash`), no new job |
+| `restart api worker`, `down` + `up` | Pass | Score v1 with edits survives both; latest job unchanged (no reprocessing) |
+| Unavailable video → retry | Pass | "Failed to download audio: … This video is unavailable"; retry requeues ("Queued…") and fails cleanly again |
+| Worker restart mid-separation | Pass | `separate` finished, job `abandoned` and reclaimed, resumed at `transcribe`, no second extract |
+| API outage while polling | Pass | "Lost connection, retrying..." → "Lost connection to the server… reload the page"; recovers after restart |
+| Duplicate → Open existing / Process anyway | Pass | Both offered; `separate`/`transcribe` `cached`, only `map_tempo` ran (5.4 s) |
+| Delete → prune | Pass | Rick Astley 109 MB → 8 KB (empty directory) after the prune, once no live project referenced its artifacts |
+
+Resubmitting a deleted song before the prune reuses its cached stages (all
+`cached`, job done in 7 s); the prune then keeps the storage keys the new
+project references (its audio and analysis stay served) and purges only the
+deleted project's row and unreferenced keys. That is the intended content
+cache, and no artifact was lost.
+
+### 3. Performance and resource baseline
+
+| Measure | CCR (2:45) | Rick Astley (3:33) | Toto (4:55) | Queen (5:59) |
+|---|---|---|---|---|
+| extract | 3.2 s | 5.3 s | 3.3 s | 3.3 s |
+| separate (Demucs, CPU) | 101.9 s | 143.9 s | 149.7 s | 197.9 s |
+| transcribe | 46.0 s | 33.2 s | 52.8 s | 46.1 s |
+| map_tempo | 8.2 s | 9.6 s | 10.5 s | 11.8 s |
+| **Total** | **160.4 s (0.97× song length)** | 191.9 s | 216.3 s | 259.0 s |
+| Artifact disk | 84 MB → 56 MB after source-audio prune | 109 MB → 73 MB | — | — |
+
+- Worker memory, sampled every 2–12 s: separation peaks at 1.6–1.8 GiB for
+  the first job in a worker process and 2.2–2.8 GiB for a second one right
+  after it (Rick Astley 2.8 GiB after CCR; Queen 2.56 GiB after Toto). It
+  falls back to ~0.6 GiB when the queue is empty, so it is bounded and
+  released per job, not accumulating. Pass 2 reported 1.6 GiB because its
+  second job was split by the worker restart. Size hosts for ~3 GiB per
+  worker slot. API ≤ 90 MiB. No OOM kills, no unplanned restarts.
+- Score (985 hits): analysis 43 ms, saved score 15 ms; clickable notes within
+  1.46 s of navigation; engraving is two long tasks of 162–184 ms at load and
+  one of 159 ms per edit (pass 2: 160–190 ms).
+- Long tasks during playback, seek, loop, speed, metronome and count-in:
+  **none**.
+
+**Invariants:** no OOM ✔ · storage reclaimed after delete + prune ✔ ·
+duplicate served from the stage cache ✔ · no main-thread stall during
+playback ✔.
+
+### Measurement note: reference-MIDI alignment
+
+The throwaway `midi_compare.py` (V1-037) aligns the reference MIDI to the
+recording by pooled, instrument-agnostic onset matches. On CCR's steady
+eighth-note hi-hats a whole-beat shift scores almost as well, so the fit can
+lock onto the wrong beat: on this pass's output it picked an offset 1.55 s
+(3 beats) away from the V1-038 run's and reported kick 0.25 / snare 0.05 for
+events identical to that run's. An instrument-aware fit picks yet another
+offset. Per-instrument F1 against this MIDI is therefore not reliable at beat
+precision, and pass 3 establishes "no regression" by the direct
+event-by-event comparison above. Instrument-agnostic onset F1 (0.92) is
+unaffected.
+
+## Pass 2 (2026-09-27)
+
+### Environment
 
 - `main` at `e07f1db` (V1-037 merged) plus this branch. Clean deployment per
   `docs/DEPLOYMENT.md`: compose project `drumscore-v1035r` with fresh volumes,
@@ -32,7 +132,7 @@ gate stays open until the checklist is re-run (pass 3) and signed off.
   source time. Whether it *sounds* in sync is left to the product owner's
   sign-off.
 
-## 1. Automated gate
+### 1. Automated gate
 
 | Check | Result |
 |---|---|
@@ -41,7 +141,7 @@ gate stays open until the checklist is re-run (pass 3) and signed off.
 | Frontend Jest | 308 passed (305 + 3 regression tests for the count-in fix) |
 | `pnpm lint`, `npx tsc --noEmit` | Clean (lint's only warning is in the locally generated, git-ignored `coverage/` report) |
 
-## 2. Browser pass
+### 2. Browser pass
 
 | Step | Result | Evidence |
 |---|---|---|
@@ -68,7 +168,7 @@ gate stays open until the checklist is re-run (pass 3) and signed off.
 | Delete → prune | Pass | Rick Astley 73 MB → empty directory after the next prune ("purged 1 projects"); no untracked DrumScript output left |
 | Transcription timing vs reference | **Fail → #118** | See Defect 2 |
 
-## 3. Performance and resource baseline
+### 3. Performance and resource baseline
 
 | Measure | CCR (2:45) | Rick Astley (3:33) |
 |---|---|---|
@@ -93,7 +193,7 @@ gate stays open until the checklist is re-run (pass 3) and signed off.
 duplicate served from the stage cache ✔ · no main-thread stall during
 playback ✔.
 
-## Defects
+### Defects
 
 1. **Count-in from the end of the track locks the transport (fixed on this
    branch).** With the position at the end (e.g. after the song finished),
@@ -126,43 +226,52 @@ playback ✔.
 
 ## Known limitations (non-blocking)
 
-From the `TECHNICAL_DEBT.md` index and this pass:
+From the `TECHNICAL_DEBT.md` index and passes 2–3:
 
 - No authentication, no TLS/reverse proxy, CPU-only image (no GPU).
-- Transcription quality beyond #118: snare/hi-hat classification is weak on
-  real audio (Rick Astley: 60 snares against ~200 backbeats), no open/closed
+- Transcription quality: onset timing is fixed (#118), but snare/hi-hat
+  classification is weak on real audio (Rick Astley: 62 snares against ~200
+  backbeats; CCR open hi-hat recall ~0.3), no open/closed
   or cymbal labels in the real-audio benchmark, DrumScript emits no toms, no
   real confidence values.
 - Notation: meter fixed at 4/4; single global tempo and phase; no
   dotted/tied durations; beams don't cross intra-beat rests.
 - No vertical auto-scroll: during playback the playhead moves below the
   viewport on a full song.
-- Every edit re-engraves the whole score synchronously (160–190 ms).
+- Every edit re-engraves the whole score synchronously (159–184 ms).
 - `GET /score` returns 404 before the first save (a console error), and the
   duplicate check's 409 also shows as one.
 - A graceful worker stop waits for the running stage (up to the 10-minute
   `stop_grace_period`) by design.
 - Purged projects leave empty directories in storage.
+- Separation memory is 1.6–2.8 GiB per worker slot (higher for longer songs
+  and for the second job in a process; released after each job).
 - Pruner/lease edge cases recorded in `TECHNICAL_DEBT.md` (pruner races,
   lost-lease overwrite, advisory admission limits).
 
 ## Definition of Done
 
+Section references are to Pass 3.
+
 | DoD clause (`PROJECT.md`) | Status | Evidence |
 |---|---|---|
 | Submit a song | ✔ | §2 submit |
 | Reliable processing progress | ✔ | §2 progress, API outage, failure → retry, worker restart |
-| Readable notation aligned to the recording | **✘ #118** | Tempo and kicks fixed (#113, #114); engraving rules pass; non-kick event times are DrumScript's grid, not the recording's onsets |
-| Synchronized stems | ✔ (instrumented; audible check pending sign-off) | §2 play/seek/loop/speed; stems start together at one offset |
+| Readable notation aligned to the recording | ✔ (visual check pending sign-off) | Tempo and kicks fixed (#113, #114); source onset times fixed (#118): §2 onset re-check; engraving rules pass |
+| Synchronized stems | ✔ (instrumented; audible check pending sign-off) | §2 play/seek/loop/speed; both stems start together at one offset |
 | Reduce/mute drums | ✔ (automated; audible check pending sign-off) | REGRESSION_CHECKLIST §6 |
 | Seek by audio or score | ✔ | §2 slider and click-to-seek |
 | Loop sections | ✔ | §2 A/B loop |
 | Change playback speed | ✔ | §2 measured rates |
 | Correct events | ✔ | §2 editor, undo/redo |
 | Save and reload without reprocessing | ✔ | §2 reload, restart, down/up; `test_release_e2e.py` |
-| No known data-loss defects | ✔ | Persistence steps; crash-resume test |
-| No runaway-resource defects | ✔ | Memory bounded; storage reclaimed |
-| No core playback-sync defects | ✔ | No stalls; monotonic playhead; loop/rate/seek/metronome consistent; count-in lockup fixed |
+| No known data-loss defects | ✔ | Persistence steps; crash-resume; cache reuse after delete keeps referenced artifacts |
+| No runaway-resource defects | ✔ | §3 memory bounded and released per job; storage reclaimed |
+| No core playback-sync defects | ✔ | No stalls; monotonic playhead; loop/rate/seek/metronome/count-in consistent |
 
-**Sign-off:** pending. The product owner signs off after #118 is merged and
-this checklist is re-run, including the audible checks.
+**Sign-off:** pending the product owner's audible and visual checks on the
+pass-3 stack (`drumscore-v1035p3`, http://localhost:13000, CCR project with
+saved edits): stems in sync while playing, seeking, looping and at 0.75×;
+drums volume reduces/mutes the drums; metronome and count-in sound on the
+beat; notation reads as the song. When signed off, record it here and close
+#86 and #33.

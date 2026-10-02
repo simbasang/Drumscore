@@ -198,7 +198,9 @@ export default function DrumScore({ score, currentTime, onSeek }: DrumScoreProps
     <div
       ref={containerRef}
       data-testid="drum-score"
-      style={{ width: "100%", overflowX: "auto" }}
+      // VexFlow draws in black on a transparent SVG, so the score keeps its own
+      // light "paper" background; otherwise a dark page theme hides the notation.
+      style={{ width: "100%", overflowX: "auto", backgroundColor: "#ffffff" }}
     />
   );
 }

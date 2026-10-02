@@ -79,6 +79,14 @@ describe("DrumScore", () => {
     expect(container.querySelector("svg")).toBeNull();
   });
 
+  it("should draw the score on its own light background so black notation stays visible in dark mode", () => {
+    render(<DrumScore score={buildScore([])} />);
+
+    const container = screen.getByTestId("drum-score");
+
+    expect(container).toHaveStyle({ backgroundColor: "#ffffff" });
+  });
+
   it("should not throw when given a currentTime but an empty score", () => {
     render(<DrumScore score={buildScore([])} currentTime={5} />);
 
